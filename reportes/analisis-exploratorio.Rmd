@@ -1,0 +1,24 @@
+---
+title: "Analisis exploratorio - tiempos de llegada"
+output: html_document
+---
+
+```{r}
+library(tidyverse)
+library(lubridate)
+library(cmdstanr)
+```
+
+```{r}
+remesas <- read_delim("../datos/REMESAS0100012200.txt", delim = "|", skip = 1) %>%
+  mutate(timestamp = ymd_hms(paste(ANIO, MES, DIA, HORA, MINUTOS, SEGUNDOS, sep = "-")))
+```
+
+```{r}
+votos <- remesas %>% select(timestamp, MORENA, PAN, PRI) %>% 
+  pivot_longer(MORENA:PRI, names_to = "coalición", values_to = "num_votos")
+ggplot(votos, aes(x = timestamp, y = num_votos, colour = coalición)) + 
+  geom_point(alpha = 0.1) +
+  geom_smooth() 
+```
+
