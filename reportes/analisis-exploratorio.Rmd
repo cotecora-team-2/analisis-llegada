@@ -3,19 +3,19 @@ title: "Analisis exploratorio - tiempos de llegada"
 output: html_document
 ---
 
-```{r}
+## Sesgo por hora de llegada
+
+```{r, message= FALSE}
 library(tidyverse)
 library(lubridate)
 library(patchwork)
+install.packages("ggfortify")
 ```
 
-```{r}
+```{r, message = FALSE}
 remesas <- read_delim("../datos/REMESAS0100012200.txt", delim = "|", skip = 1) %>%
   mutate(timestamp = ymd_hms(paste(ANIO, MES, DIA, HORA, MINUTOS, SEGUNDOS, sep = "-")))
 ```
-
-La siguiente gráfica muestra que el tiempo de llegada no es independiente
-de el porcentaje de votos para cada partido:
 
 
 ```{r}
@@ -29,6 +29,7 @@ graficar_acumulados <- function(votos, reordenar = FALSE){
       unnest(cols = data)
   }
   votos_pct <- votos %>% 
+    filter(coalición != "JHRC") %>% 
     group_by(timestamp, coalición) %>% 
     summarise(num_votos = sum(num_votos), .groups = "drop") %>% 
     group_by(coalición)  %>%
@@ -38,22 +39,45 @@ graficar_acumulados <- function(votos, reordenar = FALSE){
     mutate(total_votos = sum(acum_votos),
          pct_votos = acum_votos / total_votos) 
   graf <- ggplot(votos_pct, aes(x = timestamp, y = pct_votos, group = coalición, colour = coalición)) +
-  geom_point()
+  geom_line()
   graf
 }
 ```
 
 
+La siguiente gráfica muestra que el tiempo de llegada no es independiente
+de el porcentaje de votos para cada partido:
+
+
 ```{r}
-votos <- remesas %>% select(timestamp, MORENA, PAN, PRI) %>% 
-  pivot_longer(MORENA:PRI, names_to = "coalición", values_to = "num_votos")
+votos <- remesas %>% select(timestamp, RAC:JHRC) %>% 
+  pivot_longer(RAC:JHRC, names_to = "coalición", values_to = "num_votos")
 g_datos <- graficar_acumulados(votos)
 g_datos
 ```
 Esto podemos checarlo ordenando al azar y repitiendo la gráfica:
 
 ```{r}
-grafs_lista <- map(1:8, ~ graficar_acumulados(votos, reordenar = TRUE)) 
-grafs_lista[[6]] <- g_datos
+grafs_lista <- map(1:9, ~ graficar_acumulados(votos, reordenar = TRUE)) 
+grafs_lista[[sample(1:9, 1)]] <- g_datos
 wrap_plots(grafs_lista, ncol = 3, guides = "collect")
 ```
+donde podemos identificar claramente los datos reales, y rechazamos la hipótesis 
+de independencia de los conteos con la hora de llegada.
+
+## Modelo de tiempo de llegada
+
+
+```{r}
+library(survival)
+library(ggfortify)
+llegadas_tbl <- remesas %>% select(timestamp, TIPO_CASILLA, RAC, JAMK, AMLO) %>% 
+  mutate(tiempo = difftime(timestamp , min(timestamp), units = "mins") %>% as.numeric) %>% 
+  mutate(status= 1)
+```
+
+```{r}
+km_fit <- survfit(Surv(tiempo, status) ~ TIPO_CASILLA, data = llegadas_tbl %>% filter(TIPO_CASILLA %in% c("B", "C")))
+autoplot(km_fit)
+```
+
