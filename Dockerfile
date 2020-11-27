@@ -82,3 +82,5 @@ WORKDIR /home/rstudio
 RUN Rscript install_cmdstan.R
 USER root
 
+RUN install2.r --error \
+    patchwork
