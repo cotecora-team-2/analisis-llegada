@@ -41,14 +41,19 @@ graficar_acumulados <- function(votos, reordenar = FALSE){
   geom_point()
   graf
 }
+```
+
+
+```{r}
+votos <- remesas %>% select(timestamp, MORENA, PAN, PRI) %>% 
+  pivot_longer(MORENA:PRI, names_to = "coalición", values_to = "num_votos")
 g_datos <- graficar_acumulados(votos)
 g_datos
 ```
 Esto podemos checarlo ordenando al azar y repitiendo la gráfica:
 
 ```{r}
-grafs_lista <- map(1:5, ~ graficar_acumulados(votos, reordenar = TRUE)) 
+grafs_lista <- map(1:8, ~ graficar_acumulados(votos, reordenar = TRUE)) 
 grafs_lista[[6]] <- g_datos
 wrap_plots(grafs_lista, ncol = 3, guides = "collect")
 ```
-
