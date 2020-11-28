@@ -13,7 +13,9 @@ install.packages("ggfortify")
 ```
 
 ```{r, message = FALSE}
-remesas <- read_delim("../datos/REMESAS0100012200.txt", delim = "|", skip = 1) %>%
+#remesas <- read_delim("../datos/REMESAS0100012200.txt", delim = "|", skip = 1) %>%
+#  mutate(timestamp = ymd_hms(paste(ANIO, MES, DIA, HORA, MINUTOS, SEGUNDOS, sep = "-")))
+remesas <- read_csv("../datos/REMESAS0100012200_.txt") %>% 
   mutate(timestamp = ymd_hms(paste(ANIO, MES, DIA, HORA, MINUTOS, SEGUNDOS, sep = "-")))
 ```
 
@@ -71,13 +73,29 @@ de independencia de los conteos con la hora de llegada.
 ```{r}
 library(survival)
 library(ggfortify)
-llegadas_tbl <- remesas %>% select(timestamp, TIPO_CASILLA, RAC, JAMK, AMLO) %>% 
+llegadas_tbl <- remesas %>% select(timestamp, TIPO_CASILLA, RAC, JAMK, AMLO, 
+                                   Dis_elec1, Dis_tele1, Dis_lava1, Viv_tot) %>%
+  mutate(across(starts_with("Dis_"), ~ .x / Viv_tot)) %>%  
+  mutate(across(starts_with("Dis_"), ~ cut_number(.x, 2) %>% as.character)) %>% 
+  mutate(across(starts_with("Dis_"), ~ ifelse(is.na(.x), "NA", .x))) %>% 
   mutate(tiempo = difftime(timestamp , min(timestamp), units = "mins") %>% as.numeric) %>% 
   mutate(status= 1)
 ```
 
 ```{r}
-km_fit <- survfit(Surv(tiempo, status) ~ TIPO_CASILLA, data = llegadas_tbl %>% filter(TIPO_CASILLA %in% c("B", "C")))
-autoplot(km_fit)
+llegadas_tbl <- llegadas_tbl %>% 
+  mutate(y  = Surv(tiempo, status))
+casillas_ajuste <- survfit(y ~ interaction(TIPO_CASILLA, Dis_elec1, sep = "-"), 
+                  data = llegadas_tbl %>% filter(TIPO_CASILLA %in% c("B", "C")))
+#autoplot(casillas_ajuste) + xlab("Minutos después de casilla inicial") + ylab("% faltante") + 
+#  xlim(c(60, 180))
+km_tbl <- fortify(casillas_ajuste) %>% 
+  as_tibble() %>% 
+  mutate(strata = as.character(strata)) %>% 
+  separate(strata, into = c("tipo_casilla", "dis_elec"), sep = 2)  
+autoplot(casillas_ajuste) + xlab("Minutos después de casilla inicial") + ylab("% faltante") + 
+  xlim(c(60, 180)) +scale_x_continuous(breaks = c(0,30, 60,90, 120, 160, 190))
 ```
+
+
 
