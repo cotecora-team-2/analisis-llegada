@@ -3,25 +3,119 @@ title: "Analisis exploratorio - tiempos de llegada"
 output: html_document
 ---
 
-## Sesgo por hora de llegada
+## Datos
+
+- Muestra seleccionada
+- Remesas (datos observados de la muestra seleccionada en la noche de la elección)
+- Conteos finales 
+
+```{r, message=FALSE}
+#install.packages("ggfortify")
+#install.packages("survminer")
+```
+
 
 ```{r, message= FALSE}
 library(tidyverse)
 library(lubridate)
 library(patchwork)
-install.packages("ggfortify")
+library(survminer)
 ```
 
+Clave casilla: ID_ESTADO-SECCION-TIPO_CASILLA-ID_CASILLA-EXT_CONTIGUA
+
 ```{r, message = FALSE}
-#remesas <- read_delim("../datos/REMESAS0100012200.txt", delim = "|", skip = 1) %>%
-#  mutate(timestamp = ymd_hms(paste(ANIO, MES, DIA, HORA, MINUTOS, SEGUNDOS, sep = "-")))
-remesas <- read_csv("../datos/REMESAS0100012200_.txt") %>% 
-  mutate(timestamp = ymd_hms(paste(ANIO, MES, DIA, HORA, MINUTOS, SEGUNDOS, sep = "-")))
+# Id de estados
+estados <- read_csv("../datos/df_mxstate.csv")
+# Muestra seleccionada
+```
+
+#### Muestra seleccionada
+
+```{r, message = FALSE}
+muestra_selec <- read_csv("../datos/4-ConteoRapido18MUESTRA-ELECCION-PRESIDENCIAL.csv") %>% 
+  mutate(CLAVE_CASILLA = paste0(str_sub(ID, 2, 3), str_sub(ID, 6, -1)))
+nrow(muestra_selec)
+muestra_selec
+```
+#### Conteos
+
+```{r, message = FALSE}
+# Datos de prep
+#prep <- read_delim("../datos/20180702_2100_PREP_presidencia/presidencia.csv",
+#                   delim = "|", skip = 6, na = "-", quote = "'",
+#                   locale = locale(encoding = 'ISO-8859-1')) 
+# conteo
+conteo <- read_delim("../datos/presidencia.csv", delim = "|", skip = 5, quote = "'") %>% 
+  #filter(ID_CASILLA < 26) %>% 
+  #mutate(ID_ESTADO = str_pad(ID_ESTADO, 2, pad = "0"),
+  #       SECCION = str_pad(SECCION,4, pad = "0"),
+  #       TIPO_CASILLA = ifelse(TIPO_CASILLA == "MEC", "M", TIPO_CASILLA), 
+  #       ID_CASILLA = str_pad(ID_CASILLA, 2, pad = "0"),
+  #       EXT_CONTIGUA = str_pad(EXT_CONTIGUA, 2, pad = "0")) %>% 
+  #mutate(CLAVE_CASILLA = paste0(ID_ESTADO, SECCION, TIPO_CASILLA, ID_CASILLA, EXT_CONTIGUA)) %>% 
+  mutate(AMLO_1 = MORENA + PT + `ENCUENTRO SOCIAL` + PT_MORENA + MORENA_PES + PT_PES + PT_MORENA_PES, 
+         RAC_1 = PAN + PRD + `MOVIMIENTO CIUDADANO` + PAN_PRD + PAN_MC + PRD_MC + PAN_PRD_MC,
+         JAMK_1 = PRI + PVEM + `NUEVA ALIANZA` + PRI_PVEM + PRI_NA + PVEM_NA + PRI_PVEM_NA)
+# recuperar conteos de muestra completa
+datos_muestra <- muestra_selec %>% 
+  left_join(conteo %>% 
+    select(CLAVE_CASILLA, LISTA_NOMINAL_CASILLA, AMLO_1:JAMK_1) %>% 
+    rename(LISTA_NOMINAL = LISTA_NOMINAL_CASILLA), 
+    by = c("CLAVE_CASILLA", "LISTA_NOMINAL")) 
+
+#######################################
+# casillas de la muestra con faltantes:
+datos_muestra %>% group_by(is.na(AMLO_1)) %>% 
+  count()
+datos_muestra <- datos_muestra %>%
+  filter(!is.na(AMLO_1)) %>% 
+  left_join(estados %>% mutate(iD_ESTADO = region)) %>% 
+  mutate(huso = case_when(state_abbr %in% c("BC", "SON") ~ 2,
+                          state_abbr %in% c("CHIH", "BCS", "NAY", "SIN") ~ 1,
+                          TRUE ~ 0)) 
+```
+
+
+```{r, message = FALSE}
+# muestra obtenida por hora de llegada, calcular huso
+remesas <- read_delim("../datos/remesas_nal/remesas_nal/REMESAS0100020000.txt", 
+                      delim = "|", skip = 1) %>% 
+  mutate(timestamp = ymd_hms(paste(ANIO, MES, DIA, HORA, MINUTOS, SEGUNDOS, sep = "-"))) %>% 
+  mutate(ID_ESTADO = str_pad(iD_ESTADO, 2, pad = "0"),
+         SECCION = str_pad(SECCION,4, pad = "0"),
+         TIPO_CASILLA = ifelse(TIPO_CASILLA == "MEC", "M", TIPO_CASILLA), 
+         ID_CASILLA = str_pad(ID_CASILLA, 2, pad = "0"),
+         EXT_CONTIGUA = str_pad(EXT_CONTIGUA, 2, pad = "0")) %>% 
+  mutate(CLAVE_CASILLA = paste0(ID_ESTADO, SECCION, TIPO_CASILLA, ID_CASILLA, EXT_CONTIGUA))
 ```
 
 
 ```{r}
+muestra_tot <- 
+  left_join(
+    datos_muestra %>% 
+      select(CLAVE_CASILLA, LISTA_NOMINAL, TIPO_SECCION,
+             ID_ESTRATO_F, ID_AREA_RESPONSABILIDAD,
+             TIPO_CASILLA, LISTA_NOMINAL, huso, AMLO_1:JAMK_1), 
+    remesas %>% 
+      select(-TIPO_SECCION, - TIPO_CASILLA), 
+    by = c("CLAVE_CASILLA", "LISTA_NOMINAL")) %>% 
+  mutate(llegada = ifelse(is.na(AMLO), 0, 1))
+```
+
+
+### Checar datos
+
+```{r}
+ggplot(muestra_tot, aes(x = AMLO, y = AMLO_1)) + geom_point()
+```
+
+
+
+```{r}
 graficar_acumulados <- function(votos, reordenar = FALSE){
+  votos <- votos %>% filter(llegada == 1)
   if(reordenar){
     votos <- votos %>% 
       group_by(timestamp) %>% 
@@ -30,8 +124,9 @@ graficar_acumulados <- function(votos, reordenar = FALSE){
       mutate(timestamp = sample(timestamp, length(timestamp))) %>% 
       unnest(cols = data)
   }
-  votos_pct <- votos %>% 
-    filter(coalición != "JHRC") %>% 
+  comienzo <- min(votos$timestamp) + minutes(22)
+  final <- comienzo + hours(3)
+  votos_pct <- votos %>%
     group_by(timestamp, coalición) %>% 
     summarise(num_votos = sum(num_votos), .groups = "drop") %>% 
     group_by(coalición)  %>%
@@ -39,9 +134,12 @@ graficar_acumulados <- function(votos, reordenar = FALSE){
     mutate(acum_votos = cumsum(num_votos)) %>% 
     group_by(timestamp) %>% 
     mutate(total_votos = sum(acum_votos),
-         pct_votos = acum_votos / total_votos) 
+         pct_votos = acum_votos / total_votos) %>% 
+    filter(coalición == "AMLO_1") %>% 
+    filter(timestamp >= comienzo, timestamp <= final) 
+
   graf <- ggplot(votos_pct, aes(x = timestamp, y = pct_votos, group = coalición, colour = coalición)) +
-  geom_line()
+  geom_line() +ylim(0.52, 0.61)
   graf
 }
 ```
@@ -52,49 +150,136 @@ de el porcentaje de votos para cada partido:
 
 
 ```{r}
-votos <- remesas %>% select(timestamp, RAC:JHRC) %>% 
-  pivot_longer(RAC:JHRC, names_to = "coalición", values_to = "num_votos")
+votos <- muestra_tot %>% select(timestamp, llegada, AMLO_1:JAMK_1) %>% 
+  pivot_longer(AMLO_1:JAMK_1, names_to = "coalición", values_to = "num_votos")
 g_datos <- graficar_acumulados(votos)
 g_datos
 ```
 Esto podemos checarlo ordenando al azar y repitiendo la gráfica:
 
-```{r}
-grafs_lista <- map(1:9, ~ graficar_acumulados(votos, reordenar = TRUE)) 
-grafs_lista[[sample(1:9, 1)]] <- g_datos
-wrap_plots(grafs_lista, ncol = 3, guides = "collect")
+```{r, warning = FALSE}
+grafs_lista <- map(1:6, ~ graficar_acumulados(votos, reordenar = TRUE)) 
+grafs_lista[[sample(1:6, 1)]] <- g_datos
+wrap_plots(grafs_lista, ncol = 2, guides = "collect")
 ```
 donde podemos identificar claramente los datos reales, y rechazamos la hipótesis 
 de independencia de los conteos con la hora de llegada.
 
-## Modelo de tiempo de llegada
+## Análisis exploratorio
 
 
-```{r}
+```{r, fig.width = 4}
 library(survival)
 library(ggfortify)
-llegadas_tbl <- remesas %>% select(timestamp, TIPO_CASILLA, RAC, JAMK, AMLO, 
-                                   Dis_elec1, Dis_tele1, Dis_lava1, Viv_tot) %>%
-  mutate(across(starts_with("Dis_"), ~ .x / Viv_tot)) %>%  
-  mutate(across(starts_with("Dis_"), ~ cut_number(.x, 2) %>% as.character)) %>% 
-  mutate(across(starts_with("Dis_"), ~ ifelse(is.na(.x), "NA", .x))) %>% 
-  mutate(tiempo = difftime(timestamp , min(timestamp), units = "mins") %>% as.numeric) %>% 
-  mutate(status= 1)
+llegadas_tbl <- muestra_tot %>% 
+  select(timestamp, huso, llegada, TIPO_CASILLA, RAC_1, JAMK_1, AMLO_1, 
+                                   JHRC, LISTA_NOMINAL, ID_ESTRATO_F.x, ID_AREA_RESPONSABILIDAD.x,
+                                   TOTAL, TIPO_SECCION) %>%
+  mutate(tiempo = difftime(timestamp , min(timestamp, na.rm = TRUE), units = "mins") %>% as.numeric) %>%
+  mutate(tiempo = ifelse(is.na(tiempo), max(tiempo, na.rm = TRUE), tiempo)) %>% 
+  mutate(cae = paste0(ID_ESTRATO_F.x, ID_AREA_RESPONSABILIDAD.x)) %>% 
+  group_by(cae) %>% 
+  mutate(n_reporte = rank(timestamp)) %>% 
+  ungroup %>% 
+  filter(n_reporte < 4) %>% 
+  mutate(status = llegada)
+ggplot(llegadas_tbl %>% filter(llegada==1), aes(x = timestamp)) + geom_histogram()
 ```
+
+
+## Curvas de Kaplan-Meier.
+
 
 ```{r}
 llegadas_tbl <- llegadas_tbl %>% 
-  mutate(y  = Surv(tiempo, status))
-casillas_ajuste <- survfit(y ~ interaction(TIPO_CASILLA, Dis_elec1, sep = "-"), 
-                  data = llegadas_tbl %>% filter(TIPO_CASILLA %in% c("B", "C")))
-#autoplot(casillas_ajuste) + xlab("Minutos después de casilla inicial") + ylab("% faltante") + 
-#  xlim(c(60, 180))
-km_tbl <- fortify(casillas_ajuste) %>% 
-  as_tibble() %>% 
-  mutate(strata = as.character(strata)) %>% 
-  separate(strata, into = c("tipo_casilla", "dis_elec"), sep = 2)  
-autoplot(casillas_ajuste) + xlab("Minutos después de casilla inicial") + ylab("% faltante") + 
-  xlim(c(60, 180)) +scale_x_continuous(breaks = c(0,30, 60,90, 120, 160, 190))
+  mutate(y  = Surv(tiempo, status)) %>% 
+  mutate(seccion_huso = interaction(TIPO_SECCION, huso))
+casillas_ajuste <- survfit(y ~ TIPO_SECCION, 
+                  data = llegadas_tbl %>% filter(huso == 0))
+autoplot(casillas_ajuste) + xlab("Minutos después de casilla inicial") + 
+  ylab("% faltante") +
+  labs(subtitle = "Casillas de la muestra en huso 0")
+
+```
+```{r}
+llegadas_tbl_s <- llegadas_tbl %>% 
+  mutate(tipo_seccion = factor(TIPO_SECCION)) %>% 
+  mutate(huso = factor(huso)) %>% 
+  mutate(log_ln = log(1 + LISTA_NOMINAL)) %>%
+  mutate(n_reporte = factor(n_reporte)) %>% 
+  ungroup() %>% 
+  mutate(log_ln_est = (log_ln - mean(log_ln)) / sd(log_ln))
+```
+
+
+```{r}
+resumen_nom <- 
+llegadas_tbl %>% 
+  filter(LISTA_NOMINAL > 0) %>% 
+  filter(!is.na(timestamp)) %>% 
+  mutate(grupo_nominal = cut_number(LISTA_NOMINAL, 5)) %>% 
+  group_by(grupo_nominal, huso) %>% 
+  summarise(media_ln = mean(LISTA_NOMINAL), tiempo_medio = mean(timestamp - minutes(60*huso)), 
+            sdev = sd(timestamp), n = n(), ee = sdev / sqrt(n)) %>% 
+  mutate(across(where(is.numeric), round, 1))
+resumen_nom
+```
+Alrededor de 15-20 minutos de diferencia entre las casillas con menor lista nominal y mayor lista nominal.
+
+```{r}
+ggplot(resumen_nom %>% ungroup %>% filter(huso == 0), 
+       aes(x = media_ln, y = tiempo_medio, ymin = tiempo_medio - 2 * ee,
+                        ymax = tiempo_medio + 2 * ee)) +
+  geom_point() + geom_line() +
+  geom_linerange() +  xlab("Media de lista nominal por grupo") +
+  ylab("Hora medio de llegada") +
+  labs(subtitle = "Casillas de muestra en huso 0")
+```
+
+## CAEs
+
+```{r}
+remesas %>%  
+  mutate(cae = paste0(ID_ESTRATO_F, ID_AREA_RESPONSABILIDAD)) %>% 
+  group_by(cae) %>% 
+  mutate(n_reporte = n()) %>% 
+  top_n(timestamp, n = 1) %>% 
+  group_by(n_reporte) %>% 
+  summarise(n = n(), mean = mean(timestamp, na.rm = TRUE), 
+            min = min(timestamp), 
+            quantile(timestamp, probs = 0.75))
+```
+
+
+```{r}
+muestra_tot %>% 
+  filter(huso == 0) %>% 
+  mutate(cae = paste0(ID_ESTRATO_F.x, ID_AREA_RESPONSABILIDAD.x)) %>% 
+  mutate(llegada_10 = ifelse(timestamp > ymd_hms("2018-07-01 22:30:00") | is.na(timestamp) , 0 , 1)) %>% 
+  group_by(cae) %>% 
+  mutate(num_responsable = length(cae)) %>% 
+  group_by(num_responsable) %>% 
+  summarise(num_llegadas = sum(llegada_10), n = n()) %>% 
+  mutate(prop = num_llegadas / n)
+```
+
+```{r}
+nrow(muestra_tot %>% filter(huso==0)) / nrow(muestra_tot)
+```
+
+
+
+## Modelo
+
+```{r}
+ajuste_coxph <- coxph(y ~  log_ln_est + huso + TIPO_CASILLA + tipo_seccion + n_reporte, 
+                   data = llegadas_tbl_s)
+ajuste_coxph
+```
+
+
+```{r}
+ggforest(ajuste_coxph, data = llegadas_tbl_s)
 ```
 
 
