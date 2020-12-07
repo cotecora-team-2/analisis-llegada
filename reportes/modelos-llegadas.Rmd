@@ -32,6 +32,7 @@ library(patchwork)
 library(survival)
 library(survminer)
 library(ggfortify)
+source("./simulacion_tiempos.R")
 ```
 
 
@@ -201,57 +202,36 @@ estados <- c("ZAC", "COL", "CHIH", "MICH", "NAY")
 llegadas_tbl_2 <- llegadas_tbl %>% filter(state_abbr %in% estados) %>%
                   ungroup %>% 
                   mutate(grupo_ln = cut_number(LISTA_NOMINAL, 3)) %>% 
-                  mutate(tiempo_huso = ifelse(tiempo - huso > 0, tiempo - huso, 0.001))
-reg_2 <- survreg(Surv(tiempo_huso, status) ~ 1 + factor(huso) +
-                   lista_nominal_log +
-                   state_abbr:tipo_casilla +
-                   state_abbr:tipo_seccion +
-                   state_abbr:tipo_seccion:lista_nominal_log, 
+                  mutate(tiempo_huso = ifelse(tiempo - huso > 0, tiempo - huso, 0.001)) %>% 
+                  mutate(ln_log_c = lista_nominal_log - mean(lista_nominal_log))
+reg_2 <- survreg(Surv(tiempo_huso, status) ~ 1 +
+                   ln_log_c + 
+                   tipo_casilla +
+                   tipo_seccion +
+                   state_abbr:tipo_casilla:tipo_seccion +
+                   state_abbr:tipo_casilla:ln_log_c + 
+                   state_abbr:tipo_seccion:ln_log_c + strata(state_abbr), 
                    llegadas_tbl_2, 
-                 dist='weibull')
- reg_2 %>% tidy() %>% arrange(term) %>% DT::datatable()
+                 dist='lognormal', control = survreg.control(maxiter = 5000))
+reg_2 %>% tidy() %>%  DT::datatable()
 ```
 
 ### Simulación y ajuste
 
 ```{r}
-simular <- function(id, datos, reg, horas_censura = 5){
-  linear <- predict(reg, newdata = datos, type = "linear")
-  lambda <- exp(-linear)
-  ## simular
-  sims_sin_censura <- rweibull(length(lambda), 
-                               shape = 1/reg$scale,
-                               scale = 1/lambda)
-  ##
-  sims_tbl <- as_tibble(datos) %>% 
-    mutate(sim_tiempo_sc = sims_sin_censura) %>% 
-    mutate(max_time = horas_censura) %>% 
-    mutate(status_sim = ifelse(sim_tiempo_sc > max_time, 0, 1)) %>% 
-    ungroup %>% 
-    mutate(tiempo_obs_sim = ifelse(status_sim == 0, max_time, sim_tiempo_sc)) %>% 
-    select(tiempo_obs_sim, status_sim, state_abbr) %>% 
-    rename(tiempo = tiempo_obs_sim, status = status_sim)
-  sims_tbl <- sims_tbl %>% mutate(id = id) 
-  gg <- ggsurvplot(survfit(Surv(tiempo, status) ~ state_abbr, sims_tbl), data = sims_tbl)
-  gg <- gg$data.survplot %>% mutate(id = id)
-  gg
-}
-datos_sim <- map(1:50, ~ simular(.x, llegadas_tbl_2, reg_2)) 
+datos_sim <- map(1:70, ~ simular_lognormal(.x, llegadas_tbl_2, reg_2)) 
 gg_obs <- ggsurvplot(survfit(Surv(tiempo_huso, status)~ state_abbr, llegadas_tbl_2))
-datos_obs <- gg_obs$data.survplot %>% mutate(id = 51)
+datos_obs <- gg_obs$data.survplot %>% mutate(id = 71)
 datos_check <- bind_rows(datos_obs, datos_sim)
 ```
 
 ### Diagnósticos
 
 ```{r}
-ggplot(datos_check %>% filter(id!=51), aes(x = time, y = surv, group = id)) +
+ggplot(datos_check %>% filter(id!=71), aes(x = time, y = surv, group = id)) +
   geom_step( alpha = 0.3, colour = "gray") +
-  geom_step(data = datos_check %>% filter(id==51), colour = "red") +
+  geom_step(data = datos_check %>% filter(id==71), colour = "red") +
   facet_wrap(~ strata)
 ```
-
-- Nayarit y Chihuahua (y en menor grado Michoacán) tardan más en comenzar a enviar datos al principio
-- Zacatecas avanza más rápido al principio de lo que indica el modelo
 
 
