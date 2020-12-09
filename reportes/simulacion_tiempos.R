@@ -19,9 +19,15 @@ simular_weibull <- function(id, datos, reg, horas_censura = 5){
     select(tiempo_obs_sim, status_sim, state_abbr) %>%
     rename(tiempo = tiempo_obs_sim, status = status_sim)
   sims_tbl <- sims_tbl %>% mutate(id = id)
-  gg <- ggsurvplot(survfit(Surv(tiempo, status) ~ state_abbr, sims_tbl), data = sims_tbl)
-  gg <- gg$data.survplot %>% mutate(id = id)
-  gg
+  ## producir salidas
+  if(solo_tiempos){
+    salida <- sims_tbl
+  } else {
+    gg <- ggsurvplot(survfit(Surv(tiempo, status) ~ state_abbr, sims_tbl), data = sims_tbl)
+    gg <- gg$data.survplot %>% mutate(id = id)
+    salida <- gg
+  }
+  salida
 }
 
 simular_lognormal <- function(id, datos, reg, horas_censura = 5, solo_tiempos = FALSE){
@@ -40,11 +46,12 @@ simular_lognormal <- function(id, datos, reg, horas_censura = 5, solo_tiempos = 
     select(tiempo_obs_sim, status_sim, state_abbr) %>%
     rename(tiempo = tiempo_obs_sim, status = status_sim)
   sims_tbl <- sims_tbl %>% mutate(id = id)
-  gg <- ggsurvplot(survfit(Surv(tiempo, status) ~ state_abbr, sims_tbl), data = sims_tbl)
-  gg <- gg$data.survplot %>% mutate(id = id)
+  ## producir salidas
   if(solo_tiempos){
     salida <- sims_tbl
   } else {
+    gg <- ggsurvplot(survfit(Surv(tiempo, status) ~ state_abbr, sims_tbl), data = sims_tbl)
+    gg <- gg$data.survplot %>% mutate(id = id)
     salida <- gg
   }
   salida
