@@ -41,7 +41,7 @@ source("./simulacion_tiempos.R")
 
 ```{r, message = FALSE}
 # Id de estados
-estados <- read_csv("../datos/df_mxstate.csv")
+estados_tbl <- read_csv("../datos/df_mxstate.csv")
 muestra_selec <- read_csv("../datos/4-ConteoRapido18MUESTRA-ELECCION-PRESIDENCIAL.csv") %>% 
   mutate(CLAVE_CASILLA = paste0(str_sub(ID, 2, 3), str_sub(ID, 6, -1)))
 nrow(muestra_selec)
@@ -70,7 +70,7 @@ datos_muestra %>% group_by(is.na(AMLO_1)) %>%
   count()
 datos_muestra <- datos_muestra %>%
   filter(!is.na(AMLO_1)) %>% 
-  left_join(estados %>% mutate(iD_ESTADO = region)) %>% 
+  left_join(estados_tbl %>% mutate(iD_ESTADO = region)) %>% 
   mutate(huso = case_when(state_abbr %in% c("BC", "SON") ~ 2,
                           state_abbr %in% c("CHIH", "BCS", "NAY", "SIN") ~ 1,
                           TRUE ~ 0)) 
@@ -199,18 +199,23 @@ Tratamos varios modelos:
 ```{r}
 library(broom)
 estados <- c("ZAC", "COL", "CHIH", "MICH", "NAY")
+media_ln_log  <- mean(llegadas_tbl$lista_nominal_log) 
 llegadas_tbl_2 <- llegadas_tbl %>% filter(state_abbr %in% estados) %>%
                   ungroup %>% 
                   mutate(grupo_ln = cut_number(LISTA_NOMINAL, 3)) %>% 
                   mutate(tiempo_huso = ifelse(tiempo - huso > 0, tiempo - huso, 0.001)) %>% 
-                  mutate(ln_log_c = lista_nominal_log - mean(lista_nominal_log))
+                  mutate(ln_log_c = lista_nominal_log - mean(lista_nominal_log)) %>% 
+                  mutate(total_3 = RAC_1 + AMLO_1 + JAMK_1)
 reg_2 <- survreg(Surv(tiempo_huso, status) ~ 1 +
-                   ln_log_c + 
+                   ln_log_c +
                    tipo_casilla +
-                   tipo_seccion +
-                   state_abbr:tipo_casilla:tipo_seccion +
-                   state_abbr:tipo_casilla:ln_log_c + 
-                   state_abbr:tipo_seccion:ln_log_c + strata(state_abbr), 
+                   #tipo_seccion +
+                   #state_abbr:log(1+RAC_1/total_3) + 
+                   state_abbr:log(1+AMLO_1/(total_3 + 1)) + 
+                   state_abbr:log(1+JAMK_1/(total_3 +  1)) +
+                   state_abbr:ln_log_c + 
+                   #state_abbr:tipo_seccion:ln_log_c + 
+                   strata(state_abbr), 
                    llegadas_tbl_2, 
                  dist='lognormal', control = survreg.control(maxiter = 5000))
 reg_2 %>% tidy() %>%  DT::datatable()
@@ -234,4 +239,142 @@ ggplot(datos_check %>% filter(id!=71), aes(x = time, y = surv, group = id)) +
   facet_wrap(~ strata)
 ```
 
+### Ejemplo de simulación
 
+```{r}
+seleccionar_muestra <- function(conteo, prop = 0.07, est = "CHIH"){
+  conteo_tbl <- conteo %>% 
+    filter(TOTAL_VOTOS_CALCULADOS!= 0 & !is.na(TOTAL_VOTOS_CALCULADOS)) %>% 
+    left_join(estados_tbl %>% 
+               rename(ID_ESTADO = region) %>% 
+               mutate(ID_ESTADO = as.numeric(ID_ESTADO)),
+              by = "ID_ESTADO") %>% 
+    filter(state_abbr == est) %>% 
+    sample_frac(prop) %>% 
+    filter(TIPO_CASILLA != "M") %>% 
+    mutate(tipo_casilla = factor(TIPO_CASILLA, levels= c("B", "C", "E", "S")),
+           lista_nominal_log = log(1 + LISTA_NOMINAL_CASILLA)) %>%
+    mutate(ln_log_c = lista_nominal_log - media_ln_log) %>% 
+    mutate(total_3 = RAC_1 + AMLO_1 + JAMK_1) %>% 
+    select(state_abbr, tipo_casilla, ln_log_c, total_3, RAC_1, AMLO_1, JAMK_1) %>% 
+    mutate(huso = case_when(state_abbr %in% c("BC", "SON") ~ 2,
+                          state_abbr %in% c("CHIH", "BCS", "NAY", "SIN") ~ 1,
+                          TRUE ~ 0)) 
+  conteo_tbl
+}
+
+
+muestra_tbl <- seleccionar_muestra(conteo, prop = 0.1, "CHIH")
+tiempos_sim <- simular_lognormal(1, muestra_tbl, reg_2, solo_tiempos = TRUE)
+
+muestra_tiempo <- bind_cols(tiempos_sim, muestra_tbl %>% select(-state_abbr))
+
+graficar_acumulado <- function(muestra_tiempo){
+  datos <- muestra_tiempo %>% arrange(tiempo) %>% 
+    mutate(acumulado_amlo = cumsum(AMLO_1), acumulado_tot = cumsum(RAC_1 + AMLO_1 + JAMK_1)) %>% 
+    mutate(prop_amlo = acumulado_amlo / acumulado_tot) 
+  prop <- last(datos$prop_amlo)
+  ggplot(datos, aes(x = tiempo, y = prop_amlo)) + geom_line() +
+    geom_hline(yintercept = prop, colour = "red")
+}
+g_1 <- graficar_acumulado(muestra_tiempo %>% filter(status == 1)) +
+  ylim(c(0.25,0.75)) 
+g_2 <- graficar_acumulado(muestra_tiempo %>% filter(status == 1) %>% 
+                            mutate(tiempo = sample(tiempo, length(tiempo)))) +
+  ylim(c(0.25, 0.75)) 
+g_1 + g_2
+```
+
+Evaluar en 3 horas vs muestra total:
+
+```{r}
+cortes = c(1.5, 2.5, 3, 3.5, 4, 4.5, 5.5)
+#cortes <- c(50, 100, 150, 200, 300, 600)
+
+simular_cortes <- function(cortes = cortes, prop_muestra = 0.3) {
+  evaluacion_tbl <- map(cortes, function(corte) {  
+    reps_tbl <- map(1:200, function(rep){
+      # estado y porcentaje
+      muestra_tbl <- seleccionar_muestra(conteo, prop = prop_muestra, "MICH")
+      tiempos_sim <- simular_lognormal(1, muestra_tbl, reg_2, solo_tiempos = TRUE)
+      datos <- bind_cols(tiempos_sim, muestra_tbl %>% select(-state_abbr)) %>% 
+        arrange(tiempo) %>% 
+        mutate(acumulado_amlo = cumsum(RAC_1), 
+               acumulado_tot = cumsum(RAC_1 + AMLO_1 + JAMK_1),
+               num_casillas = row_number()) %>% 
+        mutate(prop_amlo = acumulado_amlo / acumulado_tot)
+    #prop_corte <- datos %>% filter(num_casillas <= corte) %>% pull(prop_amlo) %>% last
+    #hora_salida <- datos %>% filter(num_casillas <= corte) %>% pull(tiempo) %>% last
+    prop_corte <- datos %>% filter(tiempo <= corte) %>% pull(prop_amlo) %>% last
+    hora_salida <- datos %>% filter(tiempo <= corte) %>% pull(tiempo) %>% last
+    prop <- datos %>% pull(prop_amlo) %>% last
+    tibble(prop_corte = prop_corte, prop = prop, hora_salida = hora_salida)
+  }) %>% bind_rows %>% 
+      mutate(corte = corte)
+  }) %>% bind_rows
+}
+eval_tbl_1 <- simular_cortes(cortes, 0.05) %>% mutate(prop_muestra = 0.05)
+eval_tbl_2 <- simular_cortes(cortes, 0.10) %>% mutate(prop_muestra = 0.10)
+eval_tbl_3 <- simular_cortes(cortes, 0.20) %>% mutate(prop_muestra = 0.20)
+evals_tbl <- bind_rows(eval_tbl_1, eval_tbl_2, eval_tbl_3)
+```
+
+
+```{r, fig.height = 6, fig.width = 6}
+ggplot(evals_tbl, aes(x= prop_corte, y= prop)) + geom_point() +
+  geom_abline() + facet_grid(corte ~ prop_muestra) 
+```
+
+
+Proporción 
+
+```{r}
+total <- seleccionar_muestra(conteo, prop = 1, "MICH")
+prop_real <- sum(total$RAC_1, na.rm = T)/
+  sum(total$RAC_1 + total$JAMK_1 + total$AMLO_1, na.rm = T)
+prop_real
+```
+
+```{r}
+ecm_tbl <- evals_tbl %>% mutate(prop_v = prop_real) %>% 
+  group_by(corte, prop_muestra) %>% 
+  summarise(sesgo_2 = (mean(prop_corte) - prop_real)^2,
+            varianza = var(prop_corte)) %>% 
+  ungroup %>% 
+  mutate(recm = sqrt(sesgo_2 + varianza)) 
+ecm_tbl
+ggplot(ecm_tbl, aes(x = corte, y = recm^2, 
+                    colour = factor(prop_muestra), 
+                    group=prop_muestra)) +
+  geom_point() + geom_line() 
+```
+```{r}
+ggplot(ecm_tbl, aes(x = corte, y = sesgo_2 / recm^2, 
+                    colour = factor(prop_muestra), 
+                    group=prop_muestra)) +
+  geom_point() + geom_line() 
+```
+
+
+## Análisis según tamaño de muestra 
+
+```{r}
+ecm_tbl <- evals_tbl %>% mutate(prop_v = prop_real) %>% 
+  group_by(corte, prop_muestra) %>% 
+  summarise(sesgo_2 = mean((prop_corte - prop_real)^2),
+            varianza = var(prop_corte), hora_salida_prom = mean(hora_salida)) %>% 
+  mutate(recm = sqrt(sesgo_2 + varianza)) 
+ecm_tbl
+ggplot(ecm_tbl, aes(x = corte, y = recm, label = round(hora_salida_prom,2), 
+                    colour = factor(prop_muestra), 
+                    group=prop_muestra)) +
+  geom_point() + geom_line() + geom_text(nudge_y = 0.001)
+```
+
+
+```{r}
+ggplot(ecm_tbl, aes(x = corte, y = sesgo_2 / recm^2, label = round(hora_salida_prom,2), 
+                    colour = factor(prop_muestra), 
+                    group=prop_muestra)) +
+  geom_point() + geom_line() + geom_text(nudge_y = 0.001)
+```
