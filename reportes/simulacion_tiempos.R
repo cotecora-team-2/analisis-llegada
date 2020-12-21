@@ -1,6 +1,34 @@
 #### Simulacion de tiempos de llegada
 
-simular_weibull <- function(id, datos, reg, horas_censura = 5){
+simular_cuantiles <- function(id, datos, reg, horas_censura = 5, solo_tiempos = FALSE){
+  mat_cuantiles <- predict(reg, newdata = datos,
+                           type = "quantile", p = seq(0.01, 0.99, by = 0.01))
+  rownames(mat_cuantiles) <- NULL
+  sims_sin_censura <- apply(mat_cuantiles, 1, function(cuantiles){
+    sample(cuantiles, 1)
+  })
+  ##
+  sims_tbl <- as_tibble(datos) %>%
+    mutate(sim_tiempo_sc = sims_sin_censura) %>%
+    mutate(max_time = horas_censura + ifelse(huso == 0, 1, 0)) %>%
+    mutate(status_sim = ifelse(sim_tiempo_sc > max_time, 0, 1)) %>%
+    ungroup %>%
+    mutate(tiempo_obs_sim = ifelse(status_sim == 0, max_time, sim_tiempo_sc)) %>%
+    select(tiempo_obs_sim, status_sim, state_abbr) %>%
+    rename(tiempo = tiempo_obs_sim, status = status_sim)
+  sims_tbl <- sims_tbl %>% mutate(id = id)
+  ## producir salidas
+  if(solo_tiempos){
+    salida <- sims_tbl
+  } else {
+    gg <- ggsurvplot(survfit(Surv(tiempo, status) ~ state_abbr, sims_tbl), data = sims_tbl)
+    gg <- gg$data.survplot %>% mutate(id = id)
+    salida <- gg
+  }
+  salida
+}
+
+simular_weibull <- function(id, datos, reg, horas_censura = 5, solo_tiempos = FALSE){
   # simulación para regresión weibull
   linear <- predict(reg, newdata = datos, type = "linear")
   lambda <- exp(-linear)
