@@ -10,7 +10,7 @@ marco <- read_csv("../datos/LISTADO_CASILLAS_2018.csv") %>%
 muestra_selec <- read_csv("../datos/4-ConteoRapido18MUESTRA-ELECCION-PRESIDENCIAL.csv") %>%
   mutate(CLAVE_CASILLA = paste0(str_sub(ID, 2, 3), str_sub(ID, 6, -1)))
 nrow(muestra_selec)
-muestra_selec
+
 ### Conteos
 encabezado <- read_lines("../datos/presidencia.csv", skip = 6, n_max = 1) %>%
   str_replace("\\|\\|", "") %>%
@@ -33,6 +33,9 @@ conteo <- read_delim("../datos/presidencia.csv", delim = "|",
   filter(TIPO_CASILLA != "M") %>%
   mutate(tipo_casilla = factor(TIPO_CASILLA, levels= c("B", "C", "E", "S"))) %>%
   mutate(lista_nominal_log = log(1 + LISTA_NOMINAL_CASILLA)) %>%
+  ungroup %>%
+  mutate(media_ln_log = mean(lista_nominal_log, na.rm = TRUE)) %>%
+  mutate(ln_log_c = lista_nominal_log - media_ln_log) %>%
   mutate(huso = case_when(state_abbr %in% c("BC", "SON") ~ 2,
                           state_abbr %in% c("CHIH", "BCS", "NAY", "SIN") ~ 1,
                           TRUE ~ 0)) %>%
@@ -45,7 +48,8 @@ conteo <- read_delim("../datos/presidencia.csv", delim = "|",
 datos_muestra <- muestra_selec %>%
   left_join(conteo %>%
               select(CLAVE_CASILLA, LISTA_NOMINAL_CASILLA, AMLO_1:JAMK_1,
-                     TOTAL_VOTOS_CALCULADOS, lista_nominal_log, huso, tipo_casilla,
+                     TOTAL_VOTOS_CALCULADOS, lista_nominal_log, ln_log_c,
+                     huso, tipo_casilla,
                      estrato, tipo_seccion) %>%
               rename(LISTA_NOMINAL = LISTA_NOMINAL_CASILLA),
             by = c("CLAVE_CASILLA", "LISTA_NOMINAL"))
@@ -59,6 +63,12 @@ datos_muestra <- datos_muestra %>%
   mutate(huso = case_when(state_abbr %in% c("BC", "SON") ~ 2,
                           state_abbr %in% c("CHIH", "BCS", "NAY", "SIN") ~ 1,
                           TRUE ~ 0))
+
+## asignación muestra_selec
+asignacion_nal <- datos_muestra %>%
+  group_by(state_abbr, estrato) %>% count() %>%
+  ungroup %>% select(-state_abbr)
+
 
 # muestra obtenida por hora de llegada, calcular huso
 # Clave casilla: ID_ESTADO-SECCION-TIPO_CASILLA-ID_CASILLA-EXT_CONTIGUA
@@ -78,6 +88,7 @@ muestra_tot <-
     datos_muestra %>% select(CLAVE_CASILLA, LISTA_NOMINAL, TIPO_SECCION,
                              ID_ESTRATO_F, ID_AREA_RESPONSABILIDAD, state_abbr,
                              TOTAL_VOTOS_CALCULADOS, tipo_casilla, lista_nominal_log,
+                             ln_log_c,
                              tipo_seccion, LISTA_NOMINAL, huso, AMLO_1:JAMK_1),
     remesas %>% select(-TIPO_SECCION, - TIPO_CASILLA),
     by = c("CLAVE_CASILLA", "LISTA_NOMINAL")) %>%
@@ -89,7 +100,7 @@ llegadas_tbl <- muestra_tot %>%
   select(timestamp, huso, llegada, state_abbr, tipo_casilla,
          tipo_seccion,
          RAC_1, JAMK_1, AMLO_1,
-         lista_nominal_log,
+         lista_nominal_log, ln_log_c,
          TOTAL_VOTOS_CALCULADOS,
          LISTA_NOMINAL, ID_ESTRATO_F.x, ID_AREA_RESPONSABILIDAD.x,
          TOTAL, ID_ESTADO) %>%
@@ -104,14 +115,10 @@ llegadas_tbl <- muestra_tot %>%
   mutate(n_reporte = rank(timestamp)) %>%
   ungroup %>%
   group_by(state_abbr) %>%
-  mutate(grupo_ln = cut_number(LISTA_NOMINAL, 5)) %>%
   mutate(status = llegada)
 
 # Tabla para ajustar modelos
 llegadas_tbl_2 <- llegadas_tbl %>% filter(state_abbr %in% estados) %>%
   ungroup %>%
-  mutate(media_ln_log = mean(lista_nominal_log)) %>%
-  mutate(grupo_ln = cut_number(LISTA_NOMINAL, 3)) %>%
-  mutate(tiempo_huso = ifelse(tiempo - huso > 0, tiempo - huso, 0.001)) %>%
-  mutate(ln_log_c = lista_nominal_log - media_ln_log)
+  mutate(tiempo_huso = ifelse(tiempo - huso > 0, tiempo - huso, 0.001))
 

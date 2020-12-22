@@ -91,11 +91,37 @@ seleccionar_muestra <- function(conteo, prop = 0.07, estado){
   conteo_tbl <- conteo %>%
     filter(!is.na(TOTAL_VOTOS_CALCULADOS)) %>%
     filter(state_abbr == estado) %>%
-    select(state_abbr, tipo_casilla, lista_nominal_log,tipo_seccion,
+    select(state_abbr, tipo_casilla, lista_nominal_log, ln_log_c, tipo_seccion,
            TOTAL_VOTOS_CALCULADOS, RAC_1, AMLO_1, JAMK_1, huso) %>%
-    sample_frac(prop) %>%
-    mutate(ln_log_c = lista_nominal_log - media_ln_log)
+    sample_frac(prop)
   conteo_tbl
+}
+
+seleccionar_muestra_est <- function(conteo, prop = 0.07, estado){
+  conteo_tbl <- conteo %>%
+    filter(!is.na(TOTAL_VOTOS_CALCULADOS)) %>%
+    filter(state_abbr == estado) %>%
+    select(state_abbr, tipo_casilla, lista_nominal_log, ln_log_c, tipo_seccion,
+           TOTAL_VOTOS_CALCULADOS, RAC_1, AMLO_1, JAMK_1, huso, estrato)
+
+  muestra <- select_sample_prop(conteo_tbl, stratum = estrato, frac = prop)
+  muestra
+}
+
+select_sample_prop <- function(sampling_frame, stratum = stratum, frac,
+                               seed = NA, replace = FALSE){
+  if (!is.na(seed)) set.seed(seed)
+  if (missing(stratum)) {
+    sample <- dplyr::sample_frac(sampling_frame, size = frac,
+                                 replace = replace)
+  } else {
+    stratum <- dplyr::enquo(stratum)
+    sample <- sampling_frame %>%
+      dplyr::group_by(!!stratum) %>%
+      dplyr::sample_frac(size = frac, replace = replace) %>%
+      dplyr::ungroup()
+  }
+  return(sample)
 }
 
 select_sample_str <- function(sampling_frame, allocation,
@@ -132,3 +158,5 @@ select_sample_str <- function(sampling_frame, allocation,
   }
   return(sample)
 }
+
+
