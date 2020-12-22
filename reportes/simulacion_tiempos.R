@@ -87,10 +87,10 @@ simular_lognormal <- function(id, datos, reg, horas_censura = 5, solo_tiempos = 
 
 
 ## Simular muestra
-seleccionar_muestra <- function(conteo, prop = 0.07, est = "CHIH"){
+seleccionar_muestra <- function(conteo, prop = 0.07, estado){
   conteo_tbl <- conteo %>%
     filter(TOTAL_VOTOS_CALCULADOS!= 0 & !is.na(TOTAL_VOTOS_CALCULADOS)) %>%
-    filter(state_abbr == est) %>%
+    filter(state_abbr == estado) %>%
     select(state_abbr, tipo_casilla, lista_nominal_log,
            TOTAL_VOTOS_CALCULADOS, RAC_1, AMLO_1, JAMK_1, huso) %>%
     sample_frac(prop) %>%
