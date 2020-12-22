@@ -65,7 +65,7 @@ datos_muestra <- datos_muestra %>%
                           TRUE ~ 0))
 
 ## asignación muestra_selec
-asignacion_nal <- datos_muestra %>%
+estratos_nal <- conteo %>%
   group_by(state_abbr, estrato) %>% count() %>%
   ungroup %>% select(-state_abbr)
 

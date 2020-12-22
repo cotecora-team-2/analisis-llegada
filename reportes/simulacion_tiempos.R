@@ -158,5 +158,3 @@ select_sample_str <- function(sampling_frame, allocation,
   }
   return(sample)
 }
-
-
