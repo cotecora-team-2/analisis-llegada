@@ -1,6 +1,9 @@
 ---
 title: "Simulación de tiempos de llegada"
 output: html_document
+editor_options: 
+  markdown: 
+    wrap: 80
 ---
 
 ```{r setup, include=FALSE, message = FALSE}
@@ -20,80 +23,83 @@ source("./simulacion_tiempos.R")
 source("./lectura_procesamiento.R")
 ```
 
-
 ## Datos
 
 Utilizaremos los datos de la elección presidencial de 2018.
 
-- Muestra seleccionada para el conteo rápido.
-- Remesas de la muestra seleccionada, hasta media noche.
-- Tabla de conteos distritales por casilla
+-   Muestra seleccionada para el conteo rápido.
+-   Remesas de la muestra seleccionada, hasta media noche.
+-   Tabla de conteos distritales por casilla
 
 ## Idea para simulación
 
-1. Construir para cada estado un modelo para los tiempos de llegada de las casillas
-según los datos de remesas, en términos de lista nominal, tipo de casilla, porcentaje
-de votos obtenidos para los candidatos y otras variables.
-2. Seleccionar una muestra nueva a partir de la tabla de conteos distritales y según
-el diseño.
-3. Simular tiempos de llegada según 1)
-4. Evaluar propiedades de estimadores (por ejempĺo cobertura para intervalos, o sesgo
-para estimadores puntuales) dependiendo de la hora de corte, o
-cortes basados en % de casillas recibidas en las remesas simuladas. 
+1.  Construir para cada estado un modelo para los tiempos de llegada de las
+    casillas según los datos de remesas, en términos de lista nominal, tipo de
+    casilla, porcentaje de votos obtenidos para los candidatos y otras
+    variables.
+2.  Seleccionar una muestra nueva a partir de la tabla de conteos distritales y
+    según el diseño.
+3.  Simular tiempos de llegada según 1)
+4.  Evaluar propiedades de estimadores (por ejempĺo cobertura para intervalos, o
+    sesgo para estimadores puntuales) dependiendo de la hora de corte, o cortes
+    basados en % de casillas recibidas en las remesas simuladas.
 
-En esta versión, consideramos la estimación de proporción de votos para un candidato,
-y por el momento usamos muestreo aleatorio simple para ilustrar.
+En esta versión, consideramos la estimación de proporción de votos para un
+candidato, y por el momento usamos muestreo aleatorio simple para ilustrar.
 
 ## Modelos de tiempo de llegada
 
-- Usamos modelos paramétricos de supervivencia (*survreg*) para los tiempos
-de llegada de las casillas, pues una fracción de la muestra 
-- Estos modelos son estratificados por estado, y en este ejemplo usamos tiempos
-de llegada log-normales.
-- Algunos diagnósticos del ajuste están en la siguiente sección
+-   Usamos modelos paramétricos de supervivencia (*survreg*) para los tiempos de
+    llegada de las casillas, pues una fracción de la muestra
+-   Estos modelos son estratificados por estado, y en este ejemplo usamos
+    tiempos de llegada log-normales.
+-   Algunos diagnósticos del ajuste están en la siguiente sección
 
 ```{r}
 estados %>% sort 
 length(estados)
 ```
 
-
 ```{r, echo = FALSE}
 library(broom)
 media_ln_log  <- mean(llegadas_tbl$lista_nominal_log) 
-llegadas_tbl_2 <- llegadas_tbl %>% filter(state_abbr %in% estados) %>%
-                  ungroup %>% 
-                  mutate(grupo_ln = cut_number(LISTA_NOMINAL, 3)) %>% 
-                  mutate(tiempo_huso = ifelse(tiempo - huso > 0, tiempo - huso, 0.001)) %>% 
-                  mutate(ln_log_c = lista_nominal_log - mean(lista_nominal_log)) 
+llegadas_tbl_2 <- llegadas_tbl %>% 
+  filter(state_abbr %in% estados) %>%
+  ungroup %>% 
+  mutate(grupo_ln = cut_number(LISTA_NOMINAL, 3)) %>% 
+  mutate(tiempo_huso = ifelse(tiempo - huso > 0, 
+                              tiempo - huso, 0.001)) %>% 
+  mutate(ln_log_c = lista_nominal_log - mean(lista_nominal_log)) 
+
 reg_2 <- survreg(Surv(tiempo_huso, status) ~ 1 +
-                   ln_log_c +
-                   tipo_casilla +
-                   #tipo_seccion +
-                   state_abbr:tipo_casilla + 
-                   state_abbr:log(1+RAC_1/(TOTAL_VOTOS_CALCULADOS + 1)) + 
-                   state_abbr:log(1+AMLO_1/(TOTAL_VOTOS_CALCULADOS + 1)) + 
-                   state_abbr:log(1+JAMK_1/(TOTAL_VOTOS_CALCULADOS +  1)) +
-                   state_abbr:ln_log_c + 
-                   #state_abbr:tipo_seccion:ln_log_c + 
-                   strata(state_abbr), 
-                   llegadas_tbl_2, 
-                 dist='loglogistic', control = survreg.control(maxiter = 5000))
+      ln_log_c +
+      tipo_casilla +
+      tipo_seccion +
+      state_abbr:tipo_casilla + 
+      state_abbr:log(1+RAC_1/(TOTAL_VOTOS_CALCULADOS + 1)) + 
+      state_abbr:log(1+AMLO_1/(TOTAL_VOTOS_CALCULADOS + 1)) +          state_abbr:log(1+JAMK_1/(TOTAL_VOTOS_CALCULADOS +  1)) +
+      state_abbr:ln_log_c + 
+      state_abbr:tipo_seccion + 
+      strata(state_abbr), 
+    llegadas_tbl_2, 
+    dist='loglogistic', 
+    control = survreg.control(maxiter = 5000))
 ```
 
 Los coeficientes y escalas para cada estado son:
 
 ```{r}
-reg_2 %>% tidy() %>%  DT::datatable()
+reg_2 %>% tidy() %>%  
+  mutate(across(is.numeric, ~round(., 3))) %>%
+  DT::datatable()
 reg_2$scale
 ```
 
-
 ### Diagnósticos
 
-Checamos simulaciones del modelo con la misma muestra para ver el ajuste a total.
-En  gris están las simulaciones y en rojo los datos observados de las remesas:
-
+Checamos simulaciones del modelo con la misma muestra para ver el ajuste a
+total. En gris están las simulaciones y en rojo los datos observados de las
+remesas:
 
 ```{r, echo = FALSE, fig.width=8, fig.height=10}
 datos_sim <- map(1:70, ~ simular_cuantiles(.x, llegadas_tbl_2, reg_2)) 
@@ -107,16 +113,16 @@ ggplot(datos_check %>% filter(id!=71), aes(x = time, y = surv, group = id)) +
   facet_wrap(~ strata) 
 ```
 
-
 ## Evaluación de tamaño de muestra y hora de salida
 
-Ahora simulamos muestras de distintos tamaños, con horas de llegada. Hacemos cortes en distintos tiempos
+Ahora simulamos muestras de distintos tamaños, con horas de llegada. Hacemos
+cortes en distintos tiempos
 
-- Muestras más grandes acumulan más muestra antes, lo cual reduce su varianza
-- Evaluamos en cada hora de salida el sesgo, varianza y error cuadrático medio de 
-los estimadores puntuales.
+-   Muestras más grandes acumulan más muestra antes, lo cual reduce su varianza
+-   Evaluamos en cada hora de salida el sesgo, varianza y error cuadrático medio
+    de los estimadores puntuales.
 
-En este ejemplo consideraremos la proporción de voto estimado para RAC en 
+En este ejemplo consideraremos la proporción de voto estimado para RAC en
 Michoacán
 
 ```{r}
@@ -124,9 +130,8 @@ Michoacán
 cortes <- c(1.5, 2.5, 3, 3.5, 4, 4.5, 5.5)
 # tamaño de muestra
 props_muestra <- c(0.05, 0.10, 0.20)
-estado_sim <- "NAY"
+estado_sim <- "CHIH"
 ```
-
 
 ```{r, echo = FALSE}
 simular_cortes <-  function(rep, cortes = cortes, prop_muestra = 0.3, estado_sim){
@@ -158,6 +163,7 @@ sim_1 <- simular_cortes(1, cortes = cortes, prop_muestra = 0.05,
                         estado_sim = estado_sim)
 sim_1
 ```
+
 ```{r}
 eval_tbl_1 <- map_df(1:300, ~ simular_cortes(.x, cortes= cortes, prop_muestra = 0.05,
                                              estado_sim = estado_sim))
@@ -167,15 +173,13 @@ eval_tbl_3 <- map_df(1:300, ~ simular_cortes(.x, cortes= cortes, prop_muestra = 
                                              estado_sim = estado_sim))
 ```
 
-
 ```{r, echo = FALSE}
 evals_tbl <- bind_rows(eval_tbl_1, eval_tbl_2, eval_tbl_3)
 ```
 
-
-En primer lugar, **el error cuadrático medio es menor si se selecciona una muestra
-inicial más grande**, y se reduce conforme la hora de censura es más tarde:
-
+En primer lugar, **el error cuadrático medio es menor si se selecciona una
+muestra inicial más grande**, y se reduce conforme la hora de censura es más
+tarde:
 
 ```{r, echo = FALSE}
 total <- seleccionar_muestra(conteo, prop = 1, estado_sim)
@@ -204,7 +208,6 @@ ecm_tbl <- evals_tbl %>%
 ecm_tbl
 ```
 
-
 ```{r, echo = FALSE, fig.height = 4, fig.width = 10}
 ggplot(ecm_tbl, aes(x = corte, y = recm, 
                     colour = prop_muestra, 
@@ -216,11 +219,11 @@ ggplot(ecm_tbl, aes(x = corte, y = recm,
   facet_wrap(~candidato)
 ```
 
-Sin embargo, la **proporción del error que se debe a sesgo es más grande
-cuanto más grande sea la muestra inicial**:
+Sin embargo, la **proporción del error que se debe a sesgo es más grande cuanto
+más grande sea la muestra inicial**:
 
 ```{r, echo = FALSE, fig.height = 4, fig.width = 10}
-ggplot(ecm_tbl, aes(x = corte, y = abs(sesgo) / sqrt(varianza), 
+ggplot(ecm_tbl, aes(x = corte, y = (sesgo) / sqrt(varianza), 
                     colour = prop_muestra, 
                     group=prop_muestra)) +
   geom_vline(xintercept = 4, colour = "gray50") +
@@ -230,13 +233,16 @@ ggplot(ecm_tbl, aes(x = corte, y = abs(sesgo) / sqrt(varianza),
   facet_wrap(~candidato)
 ```
 
-
 ```{r, echo = FALSE, fig.height = 4, fig.width = 10}
 ecm_tbl %>% filter(corte == 4) %>%
   mutate(ee = sqrt(varianza)) %>% 
   select(corte, prop_muestra, candidato, sesgo, ee) %>% 
   arrange(candidato, prop_muestra)
 ```
+
+
+
+
 
 ## Estimaciones finales vs conteos
 
@@ -255,7 +261,6 @@ prop_obs_tbl <- conteo %>%
   select(state_abbr, candidato, prop_obs, num_casillas)
 prop_obs_tbl
 ```
-
 
 ```{r}
 prop_muestra_tbl <- llegadas_tbl %>% 
@@ -281,11 +286,12 @@ comparacion_tbl <- left_join(prop_obs_tbl, prop_muestra_tbl) %>%
 comparacion_tbl %>% 
   DT::datatable()
 ```
+
 ```{r}
 ggplot(comparacion_tbl, aes(x = candidato, y = dif, size = num_casillas)) +
   geom_jitter(width = 0.1, height = 0.0) + 
-  stat_summary(fun.y=mean, geom="point", shape=20, size=8, color="red", fill="red") +
+  stat_summary(fun = mean, geom = "point", 
+               shape = 20, size = 8, color = "red", fill = "red") +
   coord_flip() + geom_hline(yintercept = 0, colour = "red") +
-  ylab("Diferencia Computos (Muestra obs ´vs Total)")
+  ylab("Diferencia Computos (Muestra obs ´vs Total)") %>% %>% %>% 
 ```
-

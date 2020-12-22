@@ -91,9 +91,44 @@ seleccionar_muestra <- function(conteo, prop = 0.07, estado){
   conteo_tbl <- conteo %>%
     filter(TOTAL_VOTOS_CALCULADOS!= 0 & !is.na(TOTAL_VOTOS_CALCULADOS)) %>%
     filter(state_abbr == estado) %>%
-    select(state_abbr, tipo_casilla, lista_nominal_log,
+    select(state_abbr, tipo_casilla, lista_nominal_log,tipo_seccion,
            TOTAL_VOTOS_CALCULADOS, RAC_1, AMLO_1, JAMK_1, huso) %>%
     sample_frac(prop) %>%
     mutate(ln_log_c = lista_nominal_log - media_ln_log)
   conteo_tbl
+}
+
+select_sample_str <- function(sampling_frame, allocation,
+          sample_size = sample_size, stratum = stratum, is_frac = FALSE, seed = NA,
+          replace = FALSE){
+  if (!is.na(seed)) set.seed(seed)
+
+  sample_size <- dplyr::enquo(sample_size)
+  sample_size_name <- dplyr::quo_name(sample_size)
+
+  stratum_var_string <- deparse(substitute(stratum))
+  stratum <- dplyr::enquo(stratum)
+
+  if (is_frac) {
+    sample <- sampling_frame %>%
+      dplyr::left_join(allocation, by = stratum_var_string) %>%
+      split(.[stratum_var_string]) %>%
+      purrr::map_df(~dplyr::sample_frac(.,
+                                        size = dplyr::pull(., sample_size_name)[1],
+                                        replace = replace)) %>%
+      dplyr::select(dplyr::one_of(colnames(sampling_frame)))
+  } else {
+    # if sample size not integer we round it
+    allocation <- allocation %>%
+      dplyr::mutate(!!sample_size_name := round(!!sample_size))
+
+    sample <- sampling_frame %>%
+      dplyr::left_join(allocation, by = stratum_var_string) %>%
+      split(.[stratum_var_string]) %>%
+      purrr::map_df(~dplyr::sample_n(.,
+                                     size = dplyr::pull(., sample_size_name)[1],
+                                     replace = replace)) %>%
+      dplyr::select(dplyr::one_of(colnames(sampling_frame)))
+  }
+  return(sample)
 }
