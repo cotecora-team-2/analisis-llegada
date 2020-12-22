@@ -6,7 +6,7 @@ marco <- read_csv("../datos/LISTADO_CASILLAS_2018.csv") %>%
   rename(LISTA_NOMINAL_CASILLA = LISTA_NOMINAL) %>%
   mutate(estrato = ID_ESTRATO_F) %>%
   mutate(tipo_seccion = factor(TIPO_SECCION))
-# muestra
+# muestra seleccionada
 muestra_selec <- read_csv("../datos/4-ConteoRapido18MUESTRA-ELECCION-PRESIDENCIAL.csv") %>%
   mutate(CLAVE_CASILLA = paste0(str_sub(ID, 2, 3), str_sub(ID, 6, -1)))
 nrow(muestra_selec)
@@ -36,27 +36,30 @@ conteo <- read_delim("../datos/presidencia.csv", delim = "|",
   mutate(huso = case_when(state_abbr %in% c("BC", "SON") ~ 2,
                           state_abbr %in% c("CHIH", "BCS", "NAY", "SIN") ~ 1,
                           TRUE ~ 0)) %>%
-  left_join(marco %>% select(CLAVE_CASILLA, estrato, tipo_seccion),
+  left_join(marco %>% select(CLAVE_CASILLA, estrato, tipo_seccion, TIPO_CASILLA),
             by = c("CLAVE_CASILLA")) %>%
-  filter(!is.na(tipo_seccion))
+  filter(TOTAL_VOTOS_CALCULADOS != 0) %>% # alrededor de 200 casillas no entregadas
+  filter(!is.na(tipo_seccion)) # casillas
 
 # recuperar conteos de muestra completa
 datos_muestra <- muestra_selec %>%
   left_join(conteo %>%
               select(CLAVE_CASILLA, LISTA_NOMINAL_CASILLA, AMLO_1:JAMK_1,
-                     TOTAL_VOTOS_CALCULADOS, lista_nominal_log, huso, tipo_casilla) %>%
+                     TOTAL_VOTOS_CALCULADOS, lista_nominal_log, huso, tipo_casilla,
+                     estrato, tipo_seccion) %>%
               rename(LISTA_NOMINAL = LISTA_NOMINAL_CASILLA),
             by = c("CLAVE_CASILLA", "LISTA_NOMINAL"))
 
 # casillas de la muestra con faltantes:
-datos_muestra %>% group_by(is.na(AMLO_1)) %>%
-  count()
+datos_muestra %>% group_by(is.na(TOTAL_VOTOS_CALCULADOS)) %>%
+  count() ## 33 casillas
 datos_muestra <- datos_muestra %>%
-  filter(!is.na(AMLO_1)) %>%
+  filter(!is.na(TOTAL_VOTOS_CALCULADOS)) %>%
   left_join(estados_tbl %>% mutate(iD_ESTADO = region)) %>%
   mutate(huso = case_when(state_abbr %in% c("BC", "SON") ~ 2,
                           state_abbr %in% c("CHIH", "BCS", "NAY", "SIN") ~ 1,
                           TRUE ~ 0))
+
 # muestra obtenida por hora de llegada, calcular huso
 # Clave casilla: ID_ESTADO-SECCION-TIPO_CASILLA-ID_CASILLA-EXT_CONTIGUA
 remesas <- read_delim("../datos/remesas_nal/remesas_nal/REMESAS0100020000.txt",
@@ -75,27 +78,27 @@ muestra_tot <-
     datos_muestra %>% select(CLAVE_CASILLA, LISTA_NOMINAL, TIPO_SECCION,
                              ID_ESTRATO_F, ID_AREA_RESPONSABILIDAD, state_abbr,
                              TOTAL_VOTOS_CALCULADOS, tipo_casilla, lista_nominal_log,
-                             TIPO_CASILLA, LISTA_NOMINAL, huso, AMLO_1:JAMK_1),
+                             tipo_seccion, LISTA_NOMINAL, huso, AMLO_1:JAMK_1),
     remesas %>% select(-TIPO_SECCION, - TIPO_CASILLA),
     by = c("CLAVE_CASILLA", "LISTA_NOMINAL")) %>%
-  mutate(llegada = ifelse(is.na(TOTAL), 0, 1))
+  mutate(llegada = ifelse(is.na(TOTAL), 0, 1)) # llegó antes de las 12:00 ?
 
 
 # Construir datos de llegadas
 llegadas_tbl <- muestra_tot %>%
-  select(timestamp, huso, llegada, state_abbr, TIPO_CASILLA, RAC_1, JAMK_1, AMLO_1,
+  select(timestamp, huso, llegada, state_abbr, tipo_casilla,
+         tipo_seccion,
+         RAC_1, JAMK_1, AMLO_1,
          lista_nominal_log,
          TOTAL_VOTOS_CALCULADOS,
          LISTA_NOMINAL, ID_ESTRATO_F.x, ID_AREA_RESPONSABILIDAD.x,
-         TOTAL, TIPO_SECCION, ID_ESTADO) %>%
+         TOTAL, ID_ESTADO) %>%
   mutate(timestamp = if_else(is.na(timestamp),
                              ymd_hms("2018-07-01 23:59:59", tz = "America/Mexico_City"), timestamp)) %>%
   mutate(timestamp = with_tz(timestamp, "America/Mexico_City")) %>%
   mutate(tiempo = difftime(timestamp,
                            ymd_hms("2018-07-01 18:30:00", tz ="America/Mexico_City"),
                            units = "hours")) %>%
-  mutate(tipo_casilla = factor(TIPO_CASILLA),
-         tipo_seccion = factor(TIPO_SECCION)) %>%
   mutate(cae = paste0(ID_ESTRATO_F.x, ID_AREA_RESPONSABILIDAD.x)) %>%
   group_by(cae) %>%
   mutate(n_reporte = rank(timestamp)) %>%
@@ -105,10 +108,10 @@ llegadas_tbl <- muestra_tot %>%
   mutate(status = llegada)
 
 # Tabla para ajustar modelos
-media_ln_log  <- mean(llegadas_tbl$lista_nominal_log)
 llegadas_tbl_2 <- llegadas_tbl %>% filter(state_abbr %in% estados) %>%
   ungroup %>%
+  mutate(media_ln_log = mean(lista_nominal_log)) %>%
   mutate(grupo_ln = cut_number(LISTA_NOMINAL, 3)) %>%
   mutate(tiempo_huso = ifelse(tiempo - huso > 0, tiempo - huso, 0.001)) %>%
-  mutate(ln_log_c = lista_nominal_log - mean(lista_nominal_log))
+  mutate(ln_log_c = lista_nominal_log - media_ln_log)
 

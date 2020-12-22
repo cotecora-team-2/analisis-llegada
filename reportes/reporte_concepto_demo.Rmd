@@ -17,6 +17,8 @@ library(patchwork)
 library(survival)
 library(survminer)
 library(ggfortify)
+library(broom)
+
 estados <- c("ZAC", "COL", "CHIH", "MICH", "NAY", "BC", "BCS", "SON",
              "SIN", "NL", "SLP", "QRO", "GRO", "TLAX", "CAMP")
 source("./simulacion_tiempos.R")
@@ -61,25 +63,21 @@ length(estados)
 ```
 
 ```{r, echo = FALSE}
-library(broom)
-media_ln_log  <- mean(llegadas_tbl$lista_nominal_log) 
 llegadas_tbl_2 <- llegadas_tbl %>% 
   filter(state_abbr %in% estados) %>%
   ungroup %>% 
-  mutate(grupo_ln = cut_number(LISTA_NOMINAL, 3)) %>% 
   mutate(tiempo_huso = ifelse(tiempo - huso > 0, 
                               tiempo - huso, 0.001)) %>% 
   mutate(ln_log_c = lista_nominal_log - mean(lista_nominal_log)) 
 
 reg_2 <- survreg(Surv(tiempo_huso, status) ~ 1 +
-      ln_log_c +
-      tipo_casilla +
-      tipo_seccion +
-      state_abbr:tipo_casilla + 
+      ln_log_c + 
+      tipo_casilla + 
       state_abbr:log(1+RAC_1/(TOTAL_VOTOS_CALCULADOS + 1)) + 
-      state_abbr:log(1+AMLO_1/(TOTAL_VOTOS_CALCULADOS + 1)) +          state_abbr:log(1+JAMK_1/(TOTAL_VOTOS_CALCULADOS +  1)) +
+      state_abbr:log(1+AMLO_1/(TOTAL_VOTOS_CALCULADOS + 1)) +
+      state_abbr:log(1+JAMK_1/(TOTAL_VOTOS_CALCULADOS +  1)) +
       state_abbr:ln_log_c + 
-      state_abbr:tipo_seccion + 
+      tipo_seccion + 
       strata(state_abbr), 
     llegadas_tbl_2, 
     dist='loglogistic', 
@@ -93,6 +91,7 @@ reg_2 %>% tidy() %>%
   mutate(across(is.numeric, ~round(., 3))) %>%
   DT::datatable()
 reg_2$scale
+reg_2 %>% summary()
 ```
 
 ### Diagnósticos
@@ -122,15 +121,14 @@ cortes en distintos tiempos
 -   Evaluamos en cada hora de salida el sesgo, varianza y error cuadrático medio
     de los estimadores puntuales.
 
-En este ejemplo consideraremos la proporción de voto estimado para RAC en
-Michoacán
+
 
 ```{r}
 # cortes (horas después de 18:30 en la elección de 2018)
-cortes <- c(1.5, 2.5, 3, 3.5, 4, 4.5, 5.5)
+cortes <- c(1.5, 2.5, 3, 3.5, 4, 4.5, 5.5, Inf)
 # tamaño de muestra
 props_muestra <- c(0.05, 0.10, 0.20)
-estado_sim <- "CHIH"
+estado_sim <- "COL"
 ```
 
 ```{r, echo = FALSE}
@@ -165,11 +163,11 @@ sim_1
 ```
 
 ```{r}
-eval_tbl_1 <- map_df(1:300, ~ simular_cortes(.x, cortes= cortes, prop_muestra = 0.05,
+eval_tbl_1 <- map_df(1:400, ~ simular_cortes(.x, cortes= cortes, prop_muestra = 0.03,
                                              estado_sim = estado_sim))
-eval_tbl_2 <- map_df(1:300, ~ simular_cortes(.x, cortes= cortes, prop_muestra = 0.10,
+eval_tbl_2 <- map_df(1:400, ~ simular_cortes(.x, cortes= cortes, prop_muestra = 0.05,
                                              estado_sim = estado_sim))
-eval_tbl_3 <- map_df(1:300, ~ simular_cortes(.x, cortes= cortes, prop_muestra = 0.20,
+eval_tbl_3 <- map_df(1:400, ~ simular_cortes(.x, cortes= cortes, prop_muestra = 0.10,
                                              estado_sim = estado_sim))
 ```
 
@@ -205,13 +203,14 @@ ecm_tbl <- evals_tbl %>%
   ungroup %>% 
   mutate(recm = sqrt(sesgo^2 + varianza)) %>% 
   mutate(prop_muestra = factor(prop_muestra))
-ecm_tbl
+ecm_tbl <- ecm_tbl %>% 
+  mutate(corte_f = factor(corte))
 ```
 
 ```{r, echo = FALSE, fig.height = 4, fig.width = 10}
 ggplot(ecm_tbl, aes(x = corte, y = recm, 
                     colour = prop_muestra, 
-                    group=prop_muestra)) +
+                    group = prop_muestra)) +
   geom_vline(xintercept = 4, colour = "gray30") +
   geom_point() + geom_line() +
   ylab("Raíz de Error Cuadrático Medio") + 

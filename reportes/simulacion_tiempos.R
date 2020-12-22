@@ -2,7 +2,7 @@
 
 simular_cuantiles <- function(id, datos, reg, horas_censura = 5, solo_tiempos = FALSE){
   mat_cuantiles <- predict(reg, newdata = datos,
-                           type = "quantile", p = seq(0.01, 0.99, by = 0.01))
+                           type = "quantile", p = seq(0.001, 0.999, by = 0.001))
   rownames(mat_cuantiles) <- NULL
   sims_sin_censura <- apply(mat_cuantiles, 1, function(cuantiles){
     sample(cuantiles, 1)
@@ -89,7 +89,7 @@ simular_lognormal <- function(id, datos, reg, horas_censura = 5, solo_tiempos = 
 ## Simular muestra
 seleccionar_muestra <- function(conteo, prop = 0.07, estado){
   conteo_tbl <- conteo %>%
-    filter(TOTAL_VOTOS_CALCULADOS!= 0 & !is.na(TOTAL_VOTOS_CALCULADOS)) %>%
+    filter(!is.na(TOTAL_VOTOS_CALCULADOS)) %>%
     filter(state_abbr == estado) %>%
     select(state_abbr, tipo_casilla, lista_nominal_log,tipo_seccion,
            TOTAL_VOTOS_CALCULADOS, RAC_1, AMLO_1, JAMK_1, huso) %>%
