@@ -134,7 +134,10 @@ estado_sim <- "COL"
 ```{r, echo = FALSE}
 simular_cortes <-  function(rep, cortes = cortes, prop_muestra = 0.3, estado_sim){
   # seleccionar una muestra y simular tiempos de llegadas
-  muestra_tbl <- seleccionar_muestra(conteo, prop = prop_muestra, estado = estado_sim)
+  # MAS
+  #muestra_tbl <- seleccionar_muestra(conteo, prop = prop_muestra, estado = estado_sim)
+  # estratificada proporcional
+  muestra_tbl <- seleccionar_muestra_est(conteo, prop = prop_muestra, estado = estado_sim)
   tiempos_sim <- simular_cuantiles(1, muestra_tbl, reg_2, solo_tiempos = TRUE)
   datos <- bind_cols(tiempos_sim, muestra_tbl %>% select(-state_abbr)) %>%
         arrange(tiempo) %>% 
