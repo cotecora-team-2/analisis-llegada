@@ -31,7 +31,7 @@ Utilizaremos los datos de la elección presidencial de 2018.
 
 -   Muestra seleccionada para el conteo rápido.
 -   Remesas de la muestra seleccionada, hasta media noche.
--   Tabla de conteos distritales por casilla
+-   Tabla de cómputos distritales por casilla
 
 ## Idea para simulación
 
@@ -41,21 +41,24 @@ Utilizaremos los datos de la elección presidencial de 2018.
     variables.
 2.  Seleccionar una muestra nueva a partir de la tabla de conteos distritales y
     según el diseño.
-3.  Simular tiempos de llegada según 1)
+3.  Simular tiempos de llegada según el modelos construido en 1)
+
+Con estas simulaciones podemos entonces
+
 4.  Evaluar propiedades de estimadores (por ejempĺo cobertura para intervalos, o
     sesgo para estimadores puntuales) dependiendo de la hora de corte, o cortes
     basados en % de casillas recibidas en las remesas simuladas.
 
 En esta versión, consideramos la estimación de proporción de votos para un
-candidato, y por el momento usamos muestreo aleatorio simple para ilustrar.
+candidato usando el estimador de razón combinado bajo muestreo estratificado
+según distrito federal. 
 
 ## Modelos de tiempo de llegada
 
 -   Usamos modelos paramétricos de supervivencia (*survreg*) para los tiempos de
     llegada de las casillas, pues una fracción de la muestra
--   Estos modelos son estratificados por estado, y en este ejemplo usamos
-    tiempos de llegada log-normales.
--   Algunos diagnósticos del ajuste están en la siguiente sección
+-   Estos modelos son estratificados por estado, y usamos
+    tiempos de llegada log-logísticos.
 
 ```{r}
 estados %>% sort 
@@ -115,12 +118,8 @@ ggplot(datos_check %>% filter(id!=71), aes(x = time, y = surv, group = id)) +
 ## Evaluación de tamaño de muestra y hora de salida
 
 Ahora simulamos muestras de distintos tamaños, con horas de llegada. Hacemos
-cortes en distintos tiempos
-
--   Muestras más grandes acumulan más muestra antes, lo cual reduce su varianza
--   Evaluamos en cada hora de salida el sesgo, varianza y error cuadrático medio
-    de los estimadores puntuales.
-
+cortes en distintos tiempos, y **evaluamos en cada hora de salida el sesgo, 
+varianza y error cuadrático medio de los estimadores puntuales**.
 
 
 ```{r}
@@ -254,7 +253,7 @@ ecm_tbl %>% filter(corte == 4) %>%
 
 ## Estimaciones finales vs conteos
 
-Usamos el supuesto de muestreo proporcional dentro de cada estado.
+**Obs**: las estimaciones de abajo no utilizan la estratificación (corregir).
 
 ```{r}
 prop_obs_tbl <- conteo %>% 
