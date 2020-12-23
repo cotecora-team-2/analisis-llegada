@@ -258,13 +258,12 @@ sims_estados <- map_df(estados, function(estado_sim){
 ```
 
 
-```{r}
+```{r, fig.width = 10}
 ggplot(sims_estados %>% filter(candidato == "AMLO_1"),
        aes(x = prop_casillas_muestra, y = sesgo_relativo, colour = prop_muestra)) +
   geom_hline(yintercept = 0.5) +
-  geom_point() +
-  facet_wrap(~state_abbr) + 
-  scale_y_log10()
+  geom_point() + geom_line() + 
+  facet_wrap(~state_abbr) 
 ```
 
 
