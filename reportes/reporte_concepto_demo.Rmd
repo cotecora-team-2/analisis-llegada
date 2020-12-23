@@ -318,7 +318,7 @@ ggplot(comparacion_tbl, aes(x = candidato, y = dif, size = num_casillas)) +
   stat_summary(fun = mean, geom = "point", 
                shape = 20, size = 8, color = "red", fill = "red") +
   coord_flip() + geom_hline(yintercept = 0, colour = "red") +
-  ylab("Diferencia Computos (Muestra obs ´vs Total)") 
+  ylab("Diferencia Computos (Muestra obs vs Total)") 
 ```
 
 
