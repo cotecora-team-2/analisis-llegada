@@ -158,3 +158,39 @@ select_sample_str <- function(sampling_frame, allocation,
   }
   return(sample)
 }
+
+simular_cortes <-  function(rep, cortes = cortes, prop_muestra = 0.3, estado_sim){
+  # seleccionar una muestra y simular tiempos de llegadas
+  # estratificada proporcional
+  # para MAS reemplazar la variable estrato en tabla conteo
+  muestra_tbl <- seleccionar_muestra_est(conteo, prop = prop_muestra, estado = estado_sim)
+  tiempos_sim <- simular_cuantiles(1, muestra_tbl, reg_2, solo_tiempos = TRUE)
+  datos <- bind_cols(tiempos_sim, muestra_tbl %>% select(-state_abbr)) %>%
+    arrange(tiempo) %>%
+    pivot_longer(cols = all_of(c("AMLO_1", "RAC_1", "JAMK_1")),
+                 names_to = "candidato", values_to ="num_votos") %>%
+    group_by(candidato, estrato) %>%
+    mutate(acumulado_cand = cumsum(num_votos),
+           acumulado_tot = cumsum(TOTAL_VOTOS_CALCULADOS),
+           num_casillas = row_number())
+  evaluacion_tbl <- map(cortes, function(corte) {
+    # calcular props para cada corte
+    # tomar ultimos datos
+    props_corte <- datos %>% filter(tiempo <= corte) %>%
+      select(candidato, acumulado_cand, tiempo, acumulado_tot, num_casillas, estrato) %>%
+      slice(n()) %>% rename(hora_salida = tiempo) %>%
+      #mutate(prop_cand = acumulado_cand / acumulado_tot) %>%
+      mutate(corte = corte, prop_muestra = prop_muestra)
+    # calcular porporciones
+    props_corte_w <- props_corte %>% left_join(estratos_nal, by = "estrato") %>%
+      mutate(acum_cand_w = acumulado_cand * n / num_casillas,
+             acum_total_w = acumulado_tot * n / num_casillas) %>%
+      ungroup %>%
+      group_by(candidato, corte, prop_muestra) %>%
+      summarise(prop_cand = sum(acum_cand_w) / sum(acum_total_w),
+                prop_casillas_muestra = (sum(num_casillas) / sum(n)) / prop_muestra, .groups = "drop")
+    props_corte_w
+  }) %>%
+    bind_rows %>% # unir todos los cortes
+    mutate(rep = rep)
+}

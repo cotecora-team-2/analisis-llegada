@@ -131,40 +131,6 @@ estado_sim <- "NL"
 ```
 
 ```{r, echo = FALSE}
-simular_cortes <-  function(rep, cortes = cortes, prop_muestra = 0.3, estado_sim){
-  # seleccionar una muestra y simular tiempos de llegadas
-  # estratificada proporcional
-  # para MAS reemplazar la variable estrato en tabla conteo
-  muestra_tbl <- seleccionar_muestra_est(conteo, prop = prop_muestra, estado = estado_sim)
-  tiempos_sim <- simular_cuantiles(1, muestra_tbl, reg_2, solo_tiempos = TRUE)
-  datos <- bind_cols(tiempos_sim, muestra_tbl %>% select(-state_abbr)) %>%
-        arrange(tiempo) %>% 
-        pivot_longer(cols = all_of(c("AMLO_1", "RAC_1", "JAMK_1")), 
-                     names_to = "candidato", values_to ="num_votos") %>% 
-        group_by(candidato, estrato) %>% 
-        mutate(acumulado_cand = cumsum(num_votos), 
-               acumulado_tot = cumsum(TOTAL_VOTOS_CALCULADOS),
-               num_casillas = row_number()) 
-  evaluacion_tbl <- map(cortes, function(corte) {  
-      # calcular props para cada corte 
-      # tomar ultimos datos
-      props_corte <- datos %>% filter(tiempo <= corte) %>% 
-      select(candidato, acumulado_cand, tiempo, acumulado_tot, num_casillas, estrato) %>% 
-      slice(n()) %>% rename(hora_salida = tiempo) %>%
-      #mutate(prop_cand = acumulado_cand / acumulado_tot) %>% 
-      mutate(corte = corte, prop_muestra = prop_muestra)
-      # calcular porporciones
-      props_corte_w <- props_corte %>% left_join(estratos_nal, by = "estrato") %>% 
-        mutate(acum_cand_w = acumulado_cand * n / num_casillas, 
-               acum_total_w = acumulado_tot * n / num_casillas) %>%
-        ungroup %>% 
-        group_by(candidato, corte, prop_muestra) %>% 
-        summarise(prop_cand = sum(acum_cand_w) / sum(acum_total_w), .groups = "drop") 
-      props_corte_w
-    }) %>% 
-    bind_rows %>% # unir todos los cortes 
-    mutate(rep = rep)
-}
 sim_1 <- simular_cortes(1, cortes = cortes, prop_muestra = 0.05, 
                         estado_sim = estado_sim)
 sim_1
@@ -247,6 +213,59 @@ ecm_tbl %>% filter(corte == 4) %>%
   arrange(candidato, prop_muestra)
 ```
 
+## Puntos de corte y proporción de sesgo: estados de elección 2021
+
+
+
+```{r, cache = TRUE}
+sims_estados <- map_df(estados, function(estado_sim){
+  print(estado_sim)
+  # simular
+  eval_tbl_1 <- map_df(1:400, ~ simular_cortes(.x, cortes= cortes, prop_muestra = 0.03,
+                                             estado_sim = estado_sim))
+  eval_tbl_2 <- map_df(1:400, ~ simular_cortes(.x, cortes= cortes, prop_muestra = 0.05,
+                                             estado_sim = estado_sim))
+  eval_tbl_3 <- map_df(1:400, ~ simular_cortes(.x, cortes= cortes, prop_muestra = 0.10,
+                                             estado_sim = estado_sim))
+  evals_tbl <- bind_rows(eval_tbl_1, eval_tbl_2, eval_tbl_3)
+  
+  # proporciones de cómputos
+  total <- seleccionar_muestra(conteo, prop = 1, estado_sim)
+  prop_obs_tbl <- total %>% 
+    pivot_longer(cols = all_of(c("AMLO_1", "RAC_1", "JAMK_1")), 
+               names_to = "candidato", values_to ="num_votos") %>% 
+    group_by(candidato, state_abbr) %>% 
+    summarise(acumulado_cand = sum(num_votos), 
+            acumulado_tot = sum(TOTAL_VOTOS_CALCULADOS),
+            .groups = "drop") %>% 
+    mutate(prop_obs = acumulado_cand / acumulado_tot) %>% 
+    select(state_abbr, candidato, prop_obs)
+  # calcular sesgo, varianza y proporción de muestra.
+  ecm_tbl <- evals_tbl %>% 
+    left_join(prop_obs_tbl, by = "candidato") %>% 
+    ungroup() %>% 
+    group_by(corte, prop_muestra, candidato) %>% 
+    summarise(sesgo = mean(prop_cand) - mean(prop_obs),
+            varianza = var(prop_cand),
+            prop_casillas_muestra = mean(prop_casillas_muestra), 
+            .groups = "drop") %>% 
+    mutate(recm = sqrt(sesgo^2 + varianza)) %>% 
+    mutate(sesgo_relativo = abs(sesgo) / sqrt(varianza)) %>% 
+    mutate(prop_muestra = factor(prop_muestra)) %>% 
+    mutate(state_abbr = estado_sim)
+  ecm_tbl
+})
+```
+
+
+```{r}
+ggplot(sims_estados %>% filter(candidato == "AMLO_1"),
+       aes(x = prop_casillas_muestra, y = sesgo_relativo, colour = prop_muestra)) +
+  geom_hline(yintercept = 0.5) +
+  geom_point() +
+  facet_wrap(~state_abbr) + 
+  scale_y_log10()
+```
 
 
 
@@ -302,3 +321,5 @@ ggplot(comparacion_tbl, aes(x = candidato, y = dif, size = num_casillas)) +
   coord_flip() + geom_hline(yintercept = 0, colour = "red") +
   ylab("Diferencia Computos (Muestra obs ´vs Total)") 
 ```
+
+
