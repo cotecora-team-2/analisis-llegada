@@ -6,6 +6,14 @@ marco <- read_csv("../datos/LISTADO_CASILLAS_2018.csv") %>%
   rename(LISTA_NOMINAL_CASILLA = LISTA_NOMINAL) %>%
   mutate(estrato = ID_ESTRATO_F) %>%
   mutate(tipo_seccion = factor(TIPO_SECCION))
+# datos en shapes de INEGI
+inegi <- list.files("../datos/shapefiles/inegi_vivienda_2010",
+                    full.names = TRUE, pattern = ".dbf", recursive = TRUE) %>%
+  map_df(~foreign::read.dbf(., as.is = TRUE))
+# unios INEGI a marco
+marco_inegi <- marco %>%
+  left_join(select(inegi, -MUNICIPIO), by = c("SECCION", "iD_ESTADO" = "ENTIDAD"))
+# write_csv(marco_inegi, file = "../datos/marco_ext.csv")
 # muestra seleccionada
 muestra_selec <- read_csv("../datos/4-ConteoRapido18MUESTRA-ELECCION-PRESIDENCIAL.csv") %>%
   mutate(CLAVE_CASILLA = paste0(str_sub(ID, 2, 3), str_sub(ID, 6, -1)))
