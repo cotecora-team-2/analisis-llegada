@@ -17,6 +17,8 @@ library(patchwork)
 library(survival)
 library(survminer)
 library(ggfortify)
+library(broom)
+
 estados <- c("ZAC", "COL", "CHIH", "MICH", "NAY", "BC", "BCS", "SON",
              "SIN", "NL", "SLP", "QRO", "GRO", "TLAX", "CAMP")
 source("./simulacion_tiempos.R")
@@ -29,7 +31,7 @@ Utilizaremos los datos de la elección presidencial de 2018.
 
 -   Muestra seleccionada para el conteo rápido.
 -   Remesas de la muestra seleccionada, hasta media noche.
--   Tabla de conteos distritales por casilla
+-   Tabla de cómputos distritales por casilla
 
 ## Idea para simulación
 
@@ -39,21 +41,24 @@ Utilizaremos los datos de la elección presidencial de 2018.
     variables.
 2.  Seleccionar una muestra nueva a partir de la tabla de conteos distritales y
     según el diseño.
-3.  Simular tiempos de llegada según 1)
+3.  Simular tiempos de llegada según el modelos construido en 1)
+
+Con estas simulaciones podemos entonces
+
 4.  Evaluar propiedades de estimadores (por ejempĺo cobertura para intervalos, o
     sesgo para estimadores puntuales) dependiendo de la hora de corte, o cortes
     basados en % de casillas recibidas en las remesas simuladas.
 
 En esta versión, consideramos la estimación de proporción de votos para un
-candidato, y por el momento usamos muestreo aleatorio simple para ilustrar.
+candidato usando el estimador de razón combinado bajo muestreo estratificado
+según distrito federal. 
 
 ## Modelos de tiempo de llegada
 
 -   Usamos modelos paramétricos de supervivencia (*survreg*) para los tiempos de
     llegada de las casillas, pues una fracción de la muestra
--   Estos modelos son estratificados por estado, y en este ejemplo usamos
-    tiempos de llegada log-normales.
--   Algunos diagnósticos del ajuste están en la siguiente sección
+-   Estos modelos son estratificados por estado, y usamos
+    tiempos de llegada log-logísticos.
 
 ```{r}
 estados %>% sort 
@@ -61,25 +66,21 @@ length(estados)
 ```
 
 ```{r, echo = FALSE}
-library(broom)
-media_ln_log  <- mean(llegadas_tbl$lista_nominal_log) 
 llegadas_tbl_2 <- llegadas_tbl %>% 
   filter(state_abbr %in% estados) %>%
   ungroup %>% 
-  mutate(grupo_ln = cut_number(LISTA_NOMINAL, 3)) %>% 
   mutate(tiempo_huso = ifelse(tiempo - huso > 0, 
                               tiempo - huso, 0.001)) %>% 
   mutate(ln_log_c = lista_nominal_log - mean(lista_nominal_log)) 
 
 reg_2 <- survreg(Surv(tiempo_huso, status) ~ 1 +
-      ln_log_c +
-      tipo_casilla +
-      tipo_seccion +
-      state_abbr:tipo_casilla + 
+      ln_log_c + 
+      tipo_casilla + 
       state_abbr:log(1+RAC_1/(TOTAL_VOTOS_CALCULADOS + 1)) + 
-      state_abbr:log(1+AMLO_1/(TOTAL_VOTOS_CALCULADOS + 1)) +          state_abbr:log(1+JAMK_1/(TOTAL_VOTOS_CALCULADOS +  1)) +
+      state_abbr:log(1+AMLO_1/(TOTAL_VOTOS_CALCULADOS + 1)) +
+      state_abbr:log(1+JAMK_1/(TOTAL_VOTOS_CALCULADOS +  1)) +
       state_abbr:ln_log_c + 
-      state_abbr:tipo_seccion + 
+      tipo_seccion + 
       strata(state_abbr), 
     llegadas_tbl_2, 
     dist='loglogistic', 
@@ -93,6 +94,7 @@ reg_2 %>% tidy() %>%
   mutate(across(is.numeric, ~round(., 3))) %>%
   DT::datatable()
 reg_2$scale
+reg_2 %>% summary()
 ```
 
 ### Diagnósticos
@@ -116,60 +118,30 @@ ggplot(datos_check %>% filter(id!=71), aes(x = time, y = surv, group = id)) +
 ## Evaluación de tamaño de muestra y hora de salida
 
 Ahora simulamos muestras de distintos tamaños, con horas de llegada. Hacemos
-cortes en distintos tiempos
+cortes en distintos tiempos, y **evaluamos en cada hora de salida el sesgo, 
+varianza y error cuadrático medio de los estimadores puntuales**.
 
--   Muestras más grandes acumulan más muestra antes, lo cual reduce su varianza
--   Evaluamos en cada hora de salida el sesgo, varianza y error cuadrático medio
-    de los estimadores puntuales.
-
-En este ejemplo consideraremos la proporción de voto estimado para RAC en
-Michoacán
 
 ```{r}
 # cortes (horas después de 18:30 en la elección de 2018)
-cortes <- c(1.5, 2.5, 3, 3.5, 4, 4.5, 5.5)
+cortes <- c(1.5, 2.5, 3, 3.5, 4, 4.5, 5.5, Inf)
 # tamaño de muestra
 props_muestra <- c(0.05, 0.10, 0.20)
-estado_sim <- "CHIH"
+estado_sim <- "NL"
 ```
 
 ```{r, echo = FALSE}
-simular_cortes <-  function(rep, cortes = cortes, prop_muestra = 0.3, estado_sim){
-  # seleccionar una muestra y simular tiempos de llegadas
-  muestra_tbl <- seleccionar_muestra(conteo, prop = prop_muestra, estado = estado_sim)
-  tiempos_sim <- simular_cuantiles(1, muestra_tbl, reg_2, solo_tiempos = TRUE)
-  datos <- bind_cols(tiempos_sim, muestra_tbl %>% select(-state_abbr)) %>%
-        arrange(tiempo) %>% 
-        pivot_longer(cols = all_of(c("AMLO_1", "RAC_1", "JAMK_1")), 
-                     names_to = "candidato", values_to ="num_votos") %>% 
-        group_by(candidato) %>% 
-        mutate(acumulado_cand = cumsum(num_votos), 
-               acumulado_tot = cumsum(TOTAL_VOTOS_CALCULADOS),
-               num_casillas = row_number()) %>% 
-        mutate(prop_cand = acumulado_cand / acumulado_tot)
-  evaluacion_tbl <- map(cortes, function(corte) {  
-      # calcular props para cada corte 
-      # tomar ultimos datos
-      props_corte <- datos %>% filter(tiempo <= corte) %>% 
-      select(candidato, prop_cand, tiempo, acumulado_tot) %>% 
-      slice(n()) %>% rename(hora_salida = tiempo) %>% 
-      mutate(corte = corte, prop_muestra = prop_muestra)
-      props_corte
-    }) %>% 
-    bind_rows %>% # unir todos los cortes 
-    mutate(rep = rep)
-}
 sim_1 <- simular_cortes(1, cortes = cortes, prop_muestra = 0.05, 
                         estado_sim = estado_sim)
 sim_1
 ```
 
 ```{r}
-eval_tbl_1 <- map_df(1:300, ~ simular_cortes(.x, cortes= cortes, prop_muestra = 0.05,
+eval_tbl_1 <- map_df(1:400, ~ simular_cortes(.x, cortes= cortes, prop_muestra = 0.03,
                                              estado_sim = estado_sim))
-eval_tbl_2 <- map_df(1:300, ~ simular_cortes(.x, cortes= cortes, prop_muestra = 0.10,
+eval_tbl_2 <- map_df(1:400, ~ simular_cortes(.x, cortes= cortes, prop_muestra = 0.05,
                                              estado_sim = estado_sim))
-eval_tbl_3 <- map_df(1:300, ~ simular_cortes(.x, cortes= cortes, prop_muestra = 0.20,
+eval_tbl_3 <- map_df(1:400, ~ simular_cortes(.x, cortes= cortes, prop_muestra = 0.10,
                                              estado_sim = estado_sim))
 ```
 
@@ -205,13 +177,14 @@ ecm_tbl <- evals_tbl %>%
   ungroup %>% 
   mutate(recm = sqrt(sesgo^2 + varianza)) %>% 
   mutate(prop_muestra = factor(prop_muestra))
-ecm_tbl
+ecm_tbl <- ecm_tbl %>% 
+  mutate(corte_f = factor(corte))
 ```
 
 ```{r, echo = FALSE, fig.height = 4, fig.width = 10}
 ggplot(ecm_tbl, aes(x = corte, y = recm, 
                     colour = prop_muestra, 
-                    group=prop_muestra)) +
+                    group = prop_muestra)) +
   geom_vline(xintercept = 4, colour = "gray30") +
   geom_point() + geom_line() +
   ylab("Raíz de Error Cuadrático Medio") + 
@@ -240,13 +213,65 @@ ecm_tbl %>% filter(corte == 4) %>%
   arrange(candidato, prop_muestra)
 ```
 
+## Puntos de corte y proporción de sesgo: estados de elección 2021
+
+
+
+```{r, cache = TRUE}
+sims_estados <- map_df(estados, function(estado_sim){
+  print(estado_sim)
+  # simular
+  eval_tbl_1 <- map_df(1:400, ~ simular_cortes(.x, cortes= cortes, prop_muestra = 0.03,
+                                             estado_sim = estado_sim))
+  eval_tbl_2 <- map_df(1:400, ~ simular_cortes(.x, cortes= cortes, prop_muestra = 0.05,
+                                             estado_sim = estado_sim))
+  eval_tbl_3 <- map_df(1:400, ~ simular_cortes(.x, cortes= cortes, prop_muestra = 0.10,
+                                             estado_sim = estado_sim))
+  evals_tbl <- bind_rows(eval_tbl_1, eval_tbl_2, eval_tbl_3)
+  
+  # proporciones de cómputos
+  total <- seleccionar_muestra(conteo, prop = 1, estado_sim)
+  prop_obs_tbl <- total %>% 
+    pivot_longer(cols = all_of(c("AMLO_1", "RAC_1", "JAMK_1")), 
+               names_to = "candidato", values_to ="num_votos") %>% 
+    group_by(candidato, state_abbr) %>% 
+    summarise(acumulado_cand = sum(num_votos), 
+            acumulado_tot = sum(TOTAL_VOTOS_CALCULADOS),
+            .groups = "drop") %>% 
+    mutate(prop_obs = acumulado_cand / acumulado_tot) %>% 
+    select(state_abbr, candidato, prop_obs)
+  # calcular sesgo, varianza y proporción de muestra.
+  ecm_tbl <- evals_tbl %>% 
+    left_join(prop_obs_tbl, by = "candidato") %>% 
+    ungroup() %>% 
+    group_by(corte, prop_muestra, candidato) %>% 
+    summarise(sesgo = mean(prop_cand) - mean(prop_obs),
+            varianza = var(prop_cand),
+            prop_casillas_muestra = mean(prop_casillas_muestra), 
+            .groups = "drop") %>% 
+    mutate(recm = sqrt(sesgo^2 + varianza)) %>% 
+    mutate(sesgo_relativo = abs(sesgo) / sqrt(varianza)) %>% 
+    mutate(prop_muestra = factor(prop_muestra)) %>% 
+    mutate(state_abbr = estado_sim)
+  ecm_tbl
+})
+```
+
+
+```{r, fig.width = 10}
+ggplot(sims_estados %>% filter(candidato == "AMLO_1"),
+       aes(x = prop_casillas_muestra, y = sesgo_relativo, colour = prop_muestra)) +
+  geom_hline(yintercept = 0.5) +
+  geom_point() + geom_line() + 
+  facet_wrap(~state_abbr) 
+```
 
 
 
 
 ## Estimaciones finales vs conteos
 
-Usamos el supuesto de muestreo proporcional dentro de cada estado.
+**Obs**: las estimaciones de abajo no utilizan la estratificación (corregir).
 
 ```{r}
 prop_obs_tbl <- conteo %>% 
@@ -293,5 +318,7 @@ ggplot(comparacion_tbl, aes(x = candidato, y = dif, size = num_casillas)) +
   stat_summary(fun = mean, geom = "point", 
                shape = 20, size = 8, color = "red", fill = "red") +
   coord_flip() + geom_hline(yintercept = 0, colour = "red") +
-  ylab("Diferencia Computos (Muestra obs ´vs Total)") 
+  ylab("Diferencia Computos (Muestra obs vs Total)") 
 ```
+
+
