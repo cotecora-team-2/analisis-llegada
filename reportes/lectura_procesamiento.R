@@ -7,13 +7,22 @@ marco <- read_csv("../datos/LISTADO_CASILLAS_2018.csv") %>%
   mutate(estrato = ID_ESTRATO_F) %>%
   mutate(tipo_seccion = factor(TIPO_SECCION))
 # datos en shapes de INEGI
-inegi <- list.files("../datos/shapefiles/inegi_vivienda_2010",
-                    full.names = TRUE, pattern = ".dbf", recursive = TRUE) %>%
-  map_df(~foreign::read.dbf(., as.is = TRUE))
-# unios INEGI a marco
-marco_inegi <- marco %>%
-  left_join(select(inegi, -MUNICIPIO), by = c("SECCION", "iD_ESTADO" = "ENTIDAD"))
+# inegi_shps <- read_csv("../datos/inegi_seccion.csv")
+# inegi_dbfs <- list.files("../datos/shapefiles/inegi_vivienda_2010",
+#                          full.names = TRUE, pattern = ".dbf", recursive = TRUE) %>%
+#   map_df(~foreign::read.dbf(., as.is = TRUE)) %>%
+#   select(ENTIDAD, SECCION, OCUPVIVPAR:VPH_SNBIEN)
+# # union INEGI shps (puntos en polígonos) a marco
+# marco_inegi <- marco %>%
+#   left_join(inegi_shps, by = c("SECCION", "iD_ESTADO" = "ENTIDAD"))
+# # faltantes unimos por variable sección
+# marco_inegi <- marco_inegi %>%
+#   filter(is.na(OCUPVIVPAR)) %>%
+#   select(ID:tipo_seccion) %>%
+#   left_join(inegi_dbfs, by = c("SECCION", "iD_ESTADO" = "ENTIDAD")) %>%
+#   bind_rows(filter(marco_inegi, !is.na(OCUPVIVPAR)))
 # write_csv(marco_inegi, file = "../datos/marco_ext.csv")
+marco_ext <- read_csv(marco_inegi, file = "../datos/marco_ext.csv")
 # muestra seleccionada
 muestra_selec <- read_csv("../datos/4-ConteoRapido18MUESTRA-ELECCION-PRESIDENCIAL.csv") %>%
   mutate(CLAVE_CASILLA = paste0(str_sub(ID, 2, 3), str_sub(ID, 6, -1)))
@@ -47,11 +56,12 @@ conteo <- read_delim("../datos/presidencia.csv", delim = "|",
   mutate(huso = case_when(state_abbr %in% c("BC", "SON") ~ 2,
                           state_abbr %in% c("CHIH", "BCS", "NAY", "SIN") ~ 1,
                           TRUE ~ 0)) %>%
-  left_join(marco %>% select(CLAVE_CASILLA, estrato, tipo_seccion, TIPO_CASILLA),
+  left_join(marco_inegi,
             by = c("CLAVE_CASILLA")) %>%
   filter(TOTAL_VOTOS_CALCULADOS != 0) %>% # alrededor de 200 casillas no entregadas
   filter(!is.na(tipo_seccion)) # casillas
 
+write_csv(conteo, file = "../datos/conteo_inegi.csv")
 # recuperar conteos de muestra completa
 datos_muestra <- muestra_selec %>%
   left_join(conteo %>%
