@@ -28,7 +28,7 @@ marco_ext <- read_csv("../datos/marco_ext.csv")
 #marco_inegi <- marco %>%
 #  left_join(select(inegi, -MUNICIPIO), by = c("SECCION", "iD_ESTADO" = "ENTIDAD"))
 # write_csv(marco_inegi, file = "../datos/marco_ext.csv")
-marco_ext <- read_csv(marco_inegi, file = "../datos/marco_ext.csv")
+marco_ext <- read_csv(file = "../datos/marco_ext.csv")
 # muestra seleccionada
 muestra_selec <- read_csv("../datos/4-ConteoRapido18MUESTRA-ELECCION-PRESIDENCIAL.csv") %>%
   mutate(CLAVE_CASILLA = paste0(str_sub(ID, 2, 3), str_sub(ID, 6, -1)))
