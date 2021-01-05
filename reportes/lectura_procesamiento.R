@@ -6,13 +6,15 @@ marco <- read_csv("../datos/LISTADO_CASILLAS_2018.csv") %>%
   rename(LISTA_NOMINAL_CASILLA = LISTA_NOMINAL) %>%
   mutate(estrato = ID_ESTRATO_F) %>%
   mutate(tipo_seccion = factor(TIPO_SECCION))
+marco_ext <- read_csv("../datos/marco_ext.csv")
+
 # datos en shapes de INEGI
 inegi <- list.files("../datos/shapefiles/inegi_vivienda_2010",
                     full.names = TRUE, pattern = ".dbf", recursive = TRUE) %>%
   map_df(~foreign::read.dbf(., as.is = TRUE))
 # unios INEGI a marco
-marco_inegi <- marco %>%
-  left_join(select(inegi, -MUNICIPIO), by = c("SECCION", "iD_ESTADO" = "ENTIDAD"))
+#marco_inegi <- marco %>%
+#  left_join(select(inegi, -MUNICIPIO), by = c("SECCION", "iD_ESTADO" = "ENTIDAD"))
 # write_csv(marco_inegi, file = "../datos/marco_ext.csv")
 # muestra seleccionada
 muestra_selec <- read_csv("../datos/4-ConteoRapido18MUESTRA-ELECCION-PRESIDENCIAL.csv") %>%
@@ -47,7 +49,8 @@ conteo <- read_delim("../datos/presidencia.csv", delim = "|",
   mutate(huso = case_when(state_abbr %in% c("BC", "SON") ~ 2,
                           state_abbr %in% c("CHIH", "BCS", "NAY", "SIN") ~ 1,
                           TRUE ~ 0)) %>%
-  left_join(marco %>% select(CLAVE_CASILLA, estrato, tipo_seccion, TIPO_CASILLA),
+  left_join(marco_ext %>%
+              select(CLAVE_CASILLA, estrato, tipo_seccion, TIPO_CASILLA, TVIVHAB:VPH_SNBIEN),
             by = c("CLAVE_CASILLA")) %>%
   filter(TOTAL_VOTOS_CALCULADOS != 0) %>% # alrededor de 200 casillas no entregadas
   filter(!is.na(tipo_seccion)) # casillas
@@ -58,7 +61,7 @@ datos_muestra <- muestra_selec %>%
               select(CLAVE_CASILLA, LISTA_NOMINAL_CASILLA, AMLO_1:JAMK_1,
                      TOTAL_VOTOS_CALCULADOS, lista_nominal_log, ln_log_c,
                      huso, tipo_casilla,
-                     estrato, tipo_seccion) %>%
+                     estrato, tipo_seccion, TVIVHAB:VPH_SNBIEN) %>%
               rename(LISTA_NOMINAL = LISTA_NOMINAL_CASILLA),
             by = c("CLAVE_CASILLA", "LISTA_NOMINAL"))
 
@@ -97,7 +100,7 @@ muestra_tot <-
                              ID_ESTRATO_F, ID_AREA_RESPONSABILIDAD, state_abbr,
                              TOTAL_VOTOS_CALCULADOS, tipo_casilla, lista_nominal_log,
                              ln_log_c,
-                             tipo_seccion, LISTA_NOMINAL, huso, AMLO_1:JAMK_1),
+                             tipo_seccion, LISTA_NOMINAL, huso, AMLO_1:JAMK_1, TVIVHAB:VPH_SNBIEN),
     remesas %>% select(-TIPO_SECCION, - TIPO_CASILLA),
     by = c("CLAVE_CASILLA", "LISTA_NOMINAL")) %>%
   mutate(llegada = ifelse(is.na(TOTAL), 0, 1)) # llegó antes de las 12:00 ?
@@ -106,7 +109,7 @@ muestra_tot <-
 # Construir datos de llegadas
 llegadas_tbl <- muestra_tot %>%
   select(timestamp, huso, llegada, state_abbr, tipo_casilla,
-         tipo_seccion,
+         tipo_seccion,TVIVHAB, VPH_INTER,
          RAC_1, JAMK_1, AMLO_1,
          lista_nominal_log, ln_log_c,
          TOTAL_VOTOS_CALCULADOS,

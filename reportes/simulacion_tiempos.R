@@ -92,7 +92,7 @@ seleccionar_muestra <- function(conteo, prop = 0.07, estado){
     filter(!is.na(TOTAL_VOTOS_CALCULADOS)) %>%
     filter(state_abbr == estado) %>%
     select(state_abbr, tipo_casilla, lista_nominal_log, ln_log_c, tipo_seccion,
-           TOTAL_VOTOS_CALCULADOS, RAC_1, AMLO_1, JAMK_1, huso) %>%
+           TOTAL_VOTOS_CALCULADOS, RAC_1, AMLO_1, JAMK_1, huso, TVIVHAB:VPH_SNBIEN) %>%
     sample_frac(prop)
   conteo_tbl
 }
@@ -102,7 +102,7 @@ seleccionar_muestra_est <- function(conteo, prop = 0.07, estado){
     filter(!is.na(TOTAL_VOTOS_CALCULADOS)) %>%
     filter(state_abbr == estado) %>%
     select(state_abbr, tipo_casilla, lista_nominal_log, ln_log_c, tipo_seccion,
-           TOTAL_VOTOS_CALCULADOS, RAC_1, AMLO_1, JAMK_1, huso, estrato)
+           TOTAL_VOTOS_CALCULADOS, RAC_1, AMLO_1, JAMK_1, huso, estrato, TVIVHAB:VPH_SNBIEN)
 
   muestra <- select_sample_prop(conteo_tbl, stratum = estrato, frac = prop)
   muestra
