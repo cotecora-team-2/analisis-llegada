@@ -1,0 +1,132 @@
+---
+title: "Shapefiles distritos y casillas"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+library(sf)
+```
+Shapes inegi-ine (página INE)
+
+```{r}
+paths_shps <- list.files("../datos/shapefiles/inegi_vivienda_2010", full.names = TRUE, pattern = ".shp", recursive = TRUE)
+```
+
+Extraer únicamente tablas de datos.
+
+```{r}
+inegi_dbfs <- list.files("../datos/shapefiles/inegi_vivienda_2010",
+                    full.names = TRUE, pattern = ".dbf", recursive = TRUE) %>%
+  map_df(~foreign::read.dbf(., as.is = TRUE)) %>%
+  select(ENTIDAD, SECCION, OCUPVIVPAR:VPH_SNBIEN)
+```
+
+Leer geometrías y reproyectar a LCC para unir casillas en polígonos.
+
+```{r}
+prj_lcc <- "+proj=lcc +lat_1=17.5 +lat_2=29.5 +lat_0=12 +lon_0=-102 +x_0=2500000 +y_0=0 +datum=WGS84 +units=m +no_defs +ellps=WGS84 +towgs84=0,0,0"
+inegi_wgs <- map_df(paths_shps, st_read, quiet = TRUE,
+                stringsAsFactors = FALSE)
+inegi_lcc <- inegi_wgs %>%
+  sf::st_transform(prj_lcc) %>% # transformar a coordenadas planares
+  mutate(n_overlaps = lengths(st_overlaps(geometry))) 
+
+casillas_wgs <- st_read("../datos/shapefiles/casillas_2018_shape/casillas_2018.shp", quiet = TRUE)
+```
+
+Casillas y polígonos de sección de Aguascalientes.
+
+```{r}
+ggplot(inegi_wgs %>% filter(ENTIDAD == 1)) +
+  geom_sf() +
+  geom_sf(data = casillas_wgs %>% filter(entidad == 1), color = "red", 
+          size = 0.2)
+```
+
+Uniendo por puntos de casillas dentro de polígonos de sección.
+"A"-iD_ESTADO-ID_DISTRITO_FEDERAL-SECCION-TIPO_CASILLA-ID_CASILLA-EXT_CONTIGUA
+
+```{r}
+set.seed(928902)
+casillas_lcc <- casillas_wgs %>%
+  sf::st_transform(prj_lcc) 
+inegi_casillas_lcc <- casillas_lcc %>% 
+  st_join(inegi_lcc, join = st_within)
+
+inegi_casillas_lcc %>% 
+  mutate(id = paste(entidad, distrito_l, sep = "-")) %>% 
+  filter(seccion != SECCION) %>% 
+  select(nombre, entidad, ENTIDAD, seccion, SECCION) %>% 
+  head()
+
+inegi_casillas_df <- inegi_casillas_lcc %>% 
+  st_drop_geometry() %>% 
+  select(ENTIDAD = entidad, SECCION = seccion,
+                                OCUPVIVPAR:VPH_SNBIEN) %>% 
+  distinct() %>% 
+  group_by(ENTIDAD, SECCION) %>% 
+  sample_n(size = 1)
+#write_csv(inegi_casillas_df, file = "../datos/inegi_seccion.csv")
+
+```
+Uniendo por estado-sección.
+
+```{r}
+# quitamos geometría para crear data.frame
+inegi_df <- inegi_lcc %>% st_drop_geometry()
+inegi_casillas_df <- casillas_wgs %>% 
+  st_drop_geometry() %>% 
+  left_join(inegi_df, by = c("entidad" = "ENTIDAD", "seccion" = "SECCION"))
+inegi_casillas_df %>% tail() %>% glimpse()
+```
+
+### Shapes 2020 (Gerardo)
+
+Geometrías pero no información de INEGI.
+
+```{r}
+paths_shps <- list.files("datos/Shp2020/", full.names = TRUE, pattern = ".shp",
+                         recursive = TRUE)
+```
+
+
+```{r}
+inegi_dbfs <- list.files("datos/Shp2020", full.names = TRUE, pattern = ".dbf",
+                         recursive = TRUE) %>%
+  map_df(~foreign::read.dbf(., as.is = TRUE)) %>%
+  select(ENTIDAD, SECCION, OCUPVIVPAR:VPH_SNBIEN)
+glimpse(inegi_dbfs)
+```
+
+
+```{r}
+inegi_wgs <- map_df(list.files("datos/Shp2020", pattern = ".shp", 
+                               recursive = TRUE, full.names = TRUE), 
+                    st_read, quiet = TRUE, stringsAsFactors = FALSE)
+casillas_wgs <- st_read("datos/shapefiles/casillas_2018_shape/casillas_2018.shp", quiet = TRUE)
+```
+
+Casillas y polígonos de sección de Aguascalientes.
+
+```{r}
+ggplot(inegi_wgs %>% filter(ENTIDAD == 1)) +
+  geom_sf() +
+  geom_sf(data = casillas_wgs %>% filter(entidad == 1), color = "red", 
+          size = 0.2)
+```
+
+
+```{r}
+inegi_dbfs %>% 
+  select(ENTIDAD, SECCION, CONTROL) %>% 
+  distinct() %>% 
+  group_by(ENTIDAD, SECCION) %>% 
+  sample_n(size = 1)
+
+```
+
