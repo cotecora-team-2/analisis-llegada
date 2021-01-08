@@ -12,12 +12,9 @@ knitr::opts_chunk$set(echo = TRUE)
 theme_set(theme_minimal(base_size = 13))
 knitr::opts_chunk$set(echo = TRUE)
 # paquetes y codigo 
-library(lubridate)
 library(patchwork)
 library(survival)
 library(survminer)
-library(ggfortify)
-library(broom)
 
 estados <- c("ZAC", "COL", "CHIH", "MICH", "NAY", "BC", "BCS", "SON",
              "SIN", "NL", "SLP", "QRO", "GRO", "TLAX", "CAMP")
@@ -65,23 +62,45 @@ estados %>% sort
 length(estados)
 ```
 
+### Componentes
+
+```{r}
+comps_1$rotation[,1:2] %>%
+  as.data.frame() %>% 
+  add_rownames() %>%
+  arrange(PC2) %>% 
+  mutate(across(where(is.numeric), ~ round(., 2))) %>% 
+  print(n = 20)
+```
+
+
+
 ```{r, echo = FALSE}
 llegadas_tbl_2 <- llegadas_tbl %>% 
   filter(state_abbr %in% estados) %>%
   ungroup %>% 
   mutate(tiempo_huso = ifelse(tiempo - huso > 0, 
                               tiempo - huso, 0.001)) %>% 
-  mutate(ln_log_c = lista_nominal_log - mean(lista_nominal_log)) 
-
-reg_2 <- survreg(Surv(tiempo_huso, status) ~ 1 +
+  mutate(ln_log_c = lista_nominal_log - mean(lista_nominal_log)) %>% 
+  rowwise() %>% 
+  mutate(brecha = pmax(AMLO_1, RAC_1, JAMK_1) - median(c(AMLO_1, RAC_1, JAMK_1)))
+formula <- as.formula("Surv(tiempo_huso, status) ~ 1 +
       ln_log_c + 
       tipo_casilla + 
-      state_abbr:log(1+RAC_1/(TOTAL_VOTOS_CALCULADOS + 1)) + 
-      state_abbr:log(1+AMLO_1/(TOTAL_VOTOS_CALCULADOS + 1)) +
-      state_abbr:log(1+JAMK_1/(TOTAL_VOTOS_CALCULADOS +  1)) +
+      #factor(tipo_seccion) + 
+      tipo_casilla + 
+      state_abbr:.fittedPC1 +
+      state_abbr:.fittedPC2 +
+      state_abbr:log(1 + brecha) + 
+      #state_abbr:I(log((1+ VPH_CEL) / (2 + TVIVPARHAB))) +
+      #state_abbr:log((1 + abs(AMLO_1 - RAC_1))/( 1 + TOTAL_VOTOS_CALCULADOS)) +
+      #state_abbr:log((1 + abs(AMLO_1 - JAMK_1))/( 1 + TOTAL_VOTOS_CALCULADOS)) +
+      state_abbr:log((1+RAC_1)/(TOTAL_VOTOS_CALCULADOS + 1)) + 
+      state_abbr:log((1+AMLO_1)/(TOTAL_VOTOS_CALCULADOS + 1)) +
+      state_abbr:log((1+JAMK_1)/(TOTAL_VOTOS_CALCULADOS +  1)) +
       state_abbr:ln_log_c + 
-      tipo_seccion + 
-      strata(state_abbr), 
+      strata(state_abbr)")
+reg_2 <- survreg(formula = formula, 
     llegadas_tbl_2, 
     dist='loglogistic', 
     control = survreg.control(maxiter = 5000))
@@ -93,9 +112,25 @@ Los coeficientes y escalas para cada estado son:
 reg_2 %>% tidy() %>%  
   mutate(across(is.numeric, ~round(., 3))) %>%
   DT::datatable()
-reg_2$scale
-reg_2 %>% summary()
 ```
+
+```{r}
+coefs_1 <- reg_2 %>% tidy() %>% 
+  filter(str_detect(term, "PC")) %>% 
+  separate(term, into = c("estado", "variable"), sep = ":") %>% 
+  mutate(variable = str_sub(variable, 5, 20)) %>%
+  mutate(estado = str_sub(estado, 11, 30)) %>% 
+  group_by(variable) %>% 
+  mutate(estado = fct_reorder(estado, estimate))
+ggplot(coefs_1, aes(x = estado, y = estimate, 
+                    ymin = estimate - std.error,
+                    ymax = estimate + std.error)) + 
+  geom_hline(yintercept = 0, colour = "salmon") +
+  geom_point() +
+  geom_linerange() +
+  facet_wrap(~ variable) + coord_flip()
+```
+
 
 ### Diagnósticos
 
@@ -104,7 +139,7 @@ total. En gris están las simulaciones y en rojo los datos observados de las
 remesas:
 
 ```{r, echo = FALSE, fig.width=8, fig.height=10}
-datos_sim <- map(1:70, ~ simular_cuantiles(.x, llegadas_tbl_2, reg_2)) 
+datos_sim <- map(1:70, ~ simular_cuantiles(.x, llegadas_tbl_2, reg = reg_2)) 
 gg_obs <- ggsurvplot(survfit(Surv(tiempo_huso, status)~ state_abbr, llegadas_tbl_2))
 datos_obs <- gg_obs$data.survplot %>% mutate(id = 71)
 datos_check <- bind_rows(datos_obs, datos_sim)
@@ -126,7 +161,7 @@ varianza y error cuadrático medio de los estimadores puntuales**.
 # cortes (horas después de 18:30 en la elección de 2018)
 cortes <- c(1.5, 2.5, 3, 3.5, 4, 4.5, 5.5, Inf)
 # tamaño de muestra
-props_muestra <- c(0.05, 0.10, 0.20)
+props_muestra <- c(0.03, 0.05, 0.10)
 estado_sim <- "NL"
 ```
 
@@ -137,16 +172,13 @@ sim_1
 ```
 
 ```{r}
-eval_tbl_1 <- map_df(1:400, ~ simular_cortes(.x, cortes= cortes, prop_muestra = 0.03,
-                                             estado_sim = estado_sim))
-eval_tbl_2 <- map_df(1:400, ~ simular_cortes(.x, cortes= cortes, prop_muestra = 0.05,
-                                             estado_sim = estado_sim))
-eval_tbl_3 <- map_df(1:400, ~ simular_cortes(.x, cortes= cortes, prop_muestra = 0.10,
-                                             estado_sim = estado_sim))
+eval_tbls <- parallel::mclapply(props_muestra, function(x) {
+    map_df(1:600, ~ simular_cortes(.x, cortes= cortes, prop_muestra = x, estado_sim = estado_sim))
+  },  mc.cores = 3)
 ```
 
 ```{r, echo = FALSE}
-evals_tbl <- bind_rows(eval_tbl_1, eval_tbl_2, eval_tbl_3)
+evals_tbl <- bind_rows(eval_tbls)
 ```
 
 En primer lugar, **el error cuadrático medio es menor si se selecciona una
@@ -156,6 +188,7 @@ tarde:
 ```{r, echo = FALSE}
 total <- seleccionar_muestra(conteo, prop = 1, estado_sim)
 prop_obs_tbl <- total %>% 
+  #filter(!is.na(TVIVHAB)) %>% 
   pivot_longer(cols = all_of(c("AMLO_1", "RAC_1", "JAMK_1")), 
                names_to = "candidato", values_to ="num_votos") %>% 
   group_by(candidato, state_abbr) %>% 
@@ -218,7 +251,8 @@ ecm_tbl %>% filter(corte == 4) %>%
 
 
 ```{r, cache = TRUE}
-sims_estados <- map_df(estados, function(estado_sim){
+library(parallel)
+sims_estados <- mclapply(estados, function(estado_sim){
   print(estado_sim)
   # simular
   eval_tbl_1 <- map_df(1:400, ~ simular_cortes(.x, cortes= cortes, prop_muestra = 0.03,
@@ -254,12 +288,16 @@ sims_estados <- map_df(estados, function(estado_sim){
     mutate(prop_muestra = factor(prop_muestra)) %>% 
     mutate(state_abbr = estado_sim)
   ecm_tbl
-})
+}, mc.cores = 6)
+```
+
+```{r}
+sims_estados <- sims_estados %>% bind_rows()
 ```
 
 
 ```{r, fig.width = 10}
-ggplot(sims_estados %>% filter(candidato == "AMLO_1"),
+ggplot(sims_estados %>% filter(candidato == "RAC_1"),
        aes(x = prop_casillas_muestra, y = sesgo_relativo, colour = prop_muestra)) +
   geom_hline(yintercept = 0.5) +
   geom_point() + geom_line() + 
