@@ -1,15 +1,37 @@
 #### Simulacion de tiempos de llegada
 
-simular_cuantiles <- function(id, datos, reg, horas_censura = 5, solo_tiempos = FALSE){
+simular_cuantiles <- function(id, datos, datos_nuevos = NULL, reg, horas_censura = 5, solo_tiempos = FALSE){
+  if(is.null(datos_nuevos)){
+    datos_nuevos <- datos
+  }
+  # simular del modelo original
+
   mat_cuantiles <- predict(reg, newdata = datos,
                            type = "quantile", p = seq(0.001, 0.999, by = 0.001))
   rownames(mat_cuantiles) <- NULL
   sims_sin_censura <- apply(mat_cuantiles, 1, function(cuantiles){
     sample(cuantiles, 1)
   })
-  ##
   sims_tbl <- as_tibble(datos) %>%
-    mutate(sim_tiempo_sc = sims_sin_censura) %>%
+    mutate(sim_tiempo_sc = sims_sin_censura)
+  ## bootstrap paramétrico: ajustar a simulacion
+  obs_boot_1 <- sims_tbl %>%
+    mutate(tiempo_huso = sim_tiempo_sc, status = 1)
+  reg_boot <- survreg(formula = formula,
+                   data = as.data.frame(obs_boot_1),
+                   dist = 'loglogistic',
+                   control = survreg.control(maxiter = 5000),
+                  model = TRUE, x = TRUE, y = TRUE)
+  ## simular modelo bootstrap
+  mat_cuantiles <- predict(reg_boot, newdata = datos_nuevos,
+                           type = "quantile", p = seq(0.001, 0.999, by = 0.001))
+  rownames(mat_cuantiles) <- NULL
+  sims_sin_censura <- apply(mat_cuantiles, 1, function(cuantiles){
+    sample(cuantiles, 1)
+  })
+  # prep simulacions
+  sims_tbl <- as_tibble(datos_nuevos) %>%
+    mutate(sim_tiempo_sc = sims_sin_censura)  %>%
     mutate(max_time = horas_censura + ifelse(huso == 0, 1, 0)) %>%
     mutate(status_sim = ifelse(sim_tiempo_sc > max_time, 0, 1)) %>%
     ungroup %>%
@@ -92,7 +114,7 @@ seleccionar_muestra <- function(conteo, prop = 0.07, estado){
     filter(!is.na(TOTAL_VOTOS_CALCULADOS)) %>%
     filter(state_abbr == estado) %>%
     select(state_abbr, tipo_casilla, lista_nominal_log, ln_log_c, tipo_seccion,
-           TOTAL_VOTOS_CALCULADOS, RAC_1, AMLO_1, JAMK_1, huso) %>%
+           TOTAL_VOTOS_CALCULADOS, RAC_1, AMLO_1, JAMK_1, huso, TVIVHAB:.fittedPC5) %>%
     sample_frac(prop)
   conteo_tbl
 }
@@ -102,7 +124,7 @@ seleccionar_muestra_est <- function(conteo, prop = 0.07, estado){
     filter(!is.na(TOTAL_VOTOS_CALCULADOS)) %>%
     filter(state_abbr == estado) %>%
     select(state_abbr, tipo_casilla, lista_nominal_log, ln_log_c, tipo_seccion,
-           TOTAL_VOTOS_CALCULADOS, RAC_1, AMLO_1, JAMK_1, huso, estrato)
+           TOTAL_VOTOS_CALCULADOS, RAC_1, AMLO_1, JAMK_1, huso, estrato, TVIVHAB:.fittedPC5)
 
   muestra <- select_sample_prop(conteo_tbl, stratum = estrato, frac = prop)
   muestra
@@ -164,7 +186,8 @@ simular_cortes <-  function(rep, cortes = cortes, prop_muestra = 0.3, estado_sim
   # estratificada proporcional
   # para MAS reemplazar la variable estrato en tabla conteo
   muestra_tbl <- seleccionar_muestra_est(conteo, prop = prop_muestra, estado = estado_sim)
-  tiempos_sim <- simular_cuantiles(1, muestra_tbl, reg_2, solo_tiempos = TRUE)
+  tiempos_sim <- simular_cuantiles(1, datos = llegadas_tbl_2,
+                                   datos_nuevos = muestra_tbl, reg_2, solo_tiempos = TRUE)
   datos <- bind_cols(tiempos_sim, muestra_tbl %>% select(-state_abbr)) %>%
     arrange(tiempo) %>%
     pivot_longer(cols = all_of(c("AMLO_1", "RAC_1", "JAMK_1")),

@@ -1,3 +1,8 @@
+library(tidyverse)
+library(lubridate)
+library(ggfortify)
+library(broom)
+
 # codigos
 estados_tbl <- read_csv("../datos/df_mxstate.csv")
 # marco nal
@@ -68,6 +73,23 @@ conteo <- read_delim("../datos/presidencia.csv", delim = "|",
   filter(TOTAL_VOTOS_CALCULADOS != 0) %>% # alrededor de 200 casillas no entregadas
   filter(!is.na(tipo_seccion)) # casillas
 
+conteo <- conteo %>%
+  mutate(across(VPH_PISOTI:VPH_S_ELEC, ~ .x / (1 + TVIVPARHAB), .names = "p_{.col}"))
+
+# agregar componente principal
+comps_1 <- prcomp(conteo %>% select(p_VPH_PISOTI:p_VPH_TV),
+       center = TRUE, scale = TRUE)
+#summary(comps_1)
+
+conteo <- conteo %>%
+    nest(data = everything()) %>%
+    mutate(pca = map(data, ~ prcomp(.x %>% select(p_VPH_PISOTI:p_VPH_TV),
+                                  center = TRUE, scale = TRUE)),
+           pca_aug = map2(pca, data, ~augment(.x, data = .y)))
+conteo <- select(conteo, pca_aug) %>%
+  unnest(cols = pca_aug)
+
+
 write_csv(conteo, file = "../datos/conteo_inegi.csv")
 # recuperar conteos de muestra completa
 datos_muestra <- muestra_selec %>%
@@ -75,7 +97,7 @@ datos_muestra <- muestra_selec %>%
               select(CLAVE_CASILLA, LISTA_NOMINAL_CASILLA, AMLO_1:JAMK_1,
                      TOTAL_VOTOS_CALCULADOS, lista_nominal_log, ln_log_c,
                      huso, tipo_casilla,
-                     estrato, tipo_seccion, TVIVHAB:VPH_SNBIEN) %>%
+                     estrato, tipo_seccion, TVIVHAB:.fittedPC5) %>%
               rename(LISTA_NOMINAL = LISTA_NOMINAL_CASILLA),
             by = c("CLAVE_CASILLA", "LISTA_NOMINAL"))
 
@@ -114,7 +136,7 @@ muestra_tot <-
                              ID_ESTRATO_F, ID_AREA_RESPONSABILIDAD, state_abbr,
                              TOTAL_VOTOS_CALCULADOS, tipo_casilla, lista_nominal_log,
                              ln_log_c,
-                             tipo_seccion, LISTA_NOMINAL, huso, AMLO_1:JAMK_1, TVIVHAB:VPH_SNBIEN),
+                             tipo_seccion, LISTA_NOMINAL, huso, AMLO_1:JAMK_1, TVIVHAB:.fittedPC5),
     remesas %>% select(-TIPO_SECCION, - TIPO_CASILLA),
     by = c("CLAVE_CASILLA", "LISTA_NOMINAL")) %>%
   mutate(llegada = ifelse(is.na(TOTAL), 0, 1)) # llegó antes de las 12:00 ?
@@ -123,7 +145,8 @@ muestra_tot <-
 # Construir datos de llegadas
 llegadas_tbl <- muestra_tot %>%
   select(timestamp, huso, llegada, state_abbr, tipo_casilla,
-         tipo_seccion,TVIVHAB, VPH_INTER,
+         tipo_seccion,TVIVPARHAB, VPH_INTER, VPH_PISOTI, VPH_LAVAD, VPH_REFRI,
+         VPH_CEL, .fittedPC1:.fittedPC5,
          RAC_1, JAMK_1, AMLO_1,
          lista_nominal_log, ln_log_c,
          TOTAL_VOTOS_CALCULADOS,
