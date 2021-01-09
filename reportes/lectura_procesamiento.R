@@ -11,8 +11,6 @@ marco <- read_csv("../datos/LISTADO_CASILLAS_2018.csv") %>%
   rename(LISTA_NOMINAL_CASILLA = LISTA_NOMINAL) %>%
   mutate(estrato = ID_ESTRATO_F) %>%
   mutate(tipo_seccion = factor(TIPO_SECCION))
-marco_ext <- read_csv("../datos/marco_ext.csv")
-
 # datos en shapes de INEGI
 # inegi_shps unión de coords casillas y polígonos secciones
 # inegi_shps <- read_csv("../datos/inegi_seccion.csv")
@@ -106,11 +104,7 @@ datos_muestra %>% group_by(is.na(TOTAL_VOTOS_CALCULADOS)) %>%
   count() ## 33 casillas
 datos_muestra <- datos_muestra %>%
   filter(!is.na(TOTAL_VOTOS_CALCULADOS)) %>%
-  left_join(estados_tbl %>% mutate(iD_ESTADO = region)) %>%
-  mutate(huso = case_when(state_abbr %in% c("BC", "SON") ~ 2,
-                          state_abbr %in% c("CHIH", "BCS", "NAY", "SIN") ~ 1,
-                          TRUE ~ 0))
-
+  left_join(estados_tbl %>% mutate(iD_ESTADO = region))
 ## asignación muestra_selec
 estratos_nal <- conteo %>%
   group_by(state_abbr, estrato) %>% count() %>%
