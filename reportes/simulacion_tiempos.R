@@ -32,7 +32,7 @@ simular_cuantiles <- function(id, datos, datos_nuevos = NULL, reg, horas_censura
   # prep simulacions
   sims_tbl <- as_tibble(datos_nuevos) %>%
     mutate(sim_tiempo_sc = sims_sin_censura)  %>%
-    mutate(max_time = horas_censura + ifelse(huso == 0, 1, 0)) %>%
+    mutate(max_time = horas_censura) %>% # + ifelse(huso == 0, 1, 0)) %>%
     mutate(status_sim = ifelse(sim_tiempo_sc > max_time, 0, 1)) %>%
     ungroup %>%
     mutate(tiempo_obs_sim = ifelse(status_sim == 0, max_time, sim_tiempo_sc)) %>%
@@ -62,7 +62,7 @@ simular_weibull <- function(id, datos, reg, horas_censura = 5, solo_tiempos = FA
   ##
   sims_tbl <- as_tibble(datos) %>%
     mutate(sim_tiempo_sc = sims_sin_censura) %>%
-    mutate(max_time = horas_censura + ifelse(huso == 0, 1, 0)) %>%
+    mutate(max_time = horas_censura) %>% # + ifelse(huso == 0, 1, 0)) %>%
     mutate(status_sim = ifelse(sim_tiempo_sc > max_time, 0, 1)) %>%
     ungroup %>%
     mutate(tiempo_obs_sim = ifelse(status_sim == 0, max_time, sim_tiempo_sc)) %>%
@@ -89,7 +89,7 @@ simular_lognormal <- function(id, datos, reg, horas_censura = 5, solo_tiempos = 
   ##
   sims_tbl <- as_tibble(datos) %>%
     mutate(sim_tiempo_sc = sims_sin_censura) %>%
-    mutate(max_time = horas_censura + ifelse(huso == 0, 1, 0)) %>%
+    mutate(max_time = horas_censura) %>% # + ifelse(huso == 0, 1, 0)) %>%
     mutate(status_sim = ifelse(sim_tiempo_sc > max_time, 0, 1)) %>%
     ungroup %>%
     mutate(tiempo_obs_sim = ifelse(status_sim == 0, max_time, sim_tiempo_sc)) %>%
