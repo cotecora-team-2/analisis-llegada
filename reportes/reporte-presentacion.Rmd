@@ -131,7 +131,7 @@ reg_2 <- survreg(formula,
 Simulando del modelo construido podemos checar el ajuste a total para cada estado. Las líneas
 grises muestran 50 simulaciones del modelo y la roja los datos observados:
 
-```{r, echo = FALSE, fig.width=8, fig.height=8}
+```{r, echo = FALSE, fig.width=6, fig.height=6}
 set.seed(188324)
 datos_sim <- map(1:50, ~ simular_cuantiles(.x, llegadas_tbl_2, reg = reg_2)) 
 gg_obs <- ggsurvplot(survfit(Surv(tiempo_huso, status)~ state_abbr, llegadas_tbl_2))
@@ -143,7 +143,7 @@ ggplot(datos_check %>% filter(id!=71), aes(x = time, y = surv, group = id)) +
   geom_step( alpha = 0.3, colour = "gray") +
   geom_step(data = datos_check %>% filter(id==71), colour = "red") +
   facet_wrap(~ strata) + 
-  ylab("% Censurado") + xlab("Horas después de las 18:30 (ajustada por huso)")
+  ylab("% Censurado") + xlab("Horas después de hora de cierre de casillas")
 ```
 
 Abajo consideramos los efectos marginales de algunas variables (gráficas de dependencia
@@ -189,7 +189,7 @@ g_2 <- ggplot(datos, aes(x = LISTA_NOMINAL, y = pred_prom, group = tipo_seccion,
   ylim(3.5, 5.5)
 ```
 
-```{r, fig.width = 8, fig.height=4}
+```{r, fig.width = 6, fig.height=3}
 g_1 + g_2 + plot_layout(guides = "collect") +
   plot_annotation(subtitle = "Efectos marginales (agregado sobre entidades)")
 ```
@@ -198,7 +198,7 @@ Los coeficienta para el logaritmo de la proporción de votos recibidos por candi
 más negativos indican que el tiempo de llegada disminuye cuando la proporción de votos
 correspondiente es más grande):
 
-```{r}
+```{r, fig.width = 7, fig.height=3}
 coefs_1 <- reg_2 %>% tidy() %>% 
   filter(str_detect(term, "TOTAL")) %>% 
   separate(term, into = c("estado", "variable"), sep = ":") %>% 
@@ -283,14 +283,14 @@ En primer lugar, **el error cuadrático medio es menor si se selecciona una
 muestra inicial más grande**, y se reduce conforme la hora de censura es más
 tarde:
 
-```{r, echo = FALSE, fig.height = 4, fig.width = 10}
+```{r, echo = FALSE, fig.height = 3, fig.width = 8}
 ggplot(ecm_tbl, aes(x = corte, y = recm, 
                     colour = prop_muestra, 
                     group = prop_muestra)) +
   geom_vline(xintercept = 4, colour = "gray30") +
   geom_point() + geom_line() +
   ylab("Raíz de Error Cuadrático Medio") + 
-  xlab("Hora de censura (horas después de 18:30)") +
+  xlab("Hora de censura (horas después de cierre de casillas)") +
   facet_wrap(~candidato)
 ```
 
@@ -298,14 +298,14 @@ Sin embargo, la **proporción del error que se debe a sesgo es más grande cuant
 más grande sea la muestra inicial** (del lado derecho de cada gráfica se muestra
 se muestra la estimación con muestra completa)
 
-```{r, echo = FALSE, fig.height = 4, fig.width = 10}
+```{r, echo = FALSE, fig.height = 3, fig.width = 8}
 ggplot(ecm_tbl, aes(x = corte, y = (sesgo) / sqrt(varianza), 
                     colour = prop_muestra, 
                     group=prop_muestra)) +
   geom_vline(xintercept = 4, colour = "gray50") +
   geom_point() + geom_line() + 
   ylab(expression(Sesgo / EE)) + 
-  xlab("Hora de censura (horas después de 18:30)") +
+  xlab("Hora de censura (horas después de cierre de casillas)") +
   facet_wrap(~candidato)
 ```
 
