@@ -32,6 +32,7 @@ library(patchwork)
 library(survival)
 library(survminer)
 library(ggfortify)
+library(broom)
 source("./simulacion_tiempos.R")
 ```
 
@@ -216,10 +217,9 @@ ggsurvplot(survfit(Surv(tiempo, status) ~ grupo_ln ,
 Tratamos varios modelos:
 
 
-### Regresión Weibull
+### Regresión log-normal
 
 ```{r}
-library(broom)
 estados <- c("ZAC", "COL", "CHIH", "MICH", "NAY")
 media_ln_log  <- mean(llegadas_tbl$lista_nominal_log) 
 llegadas_tbl_2 <- llegadas_tbl %>% filter(state_abbr %in% estados) %>%
@@ -330,9 +330,9 @@ Proporción
 total <- seleccionar_muestra(conteo, prop = 1, "MICH")
 prop_real <- sum(total$RAC_1, na.rm = T)/
   sum(total$TOTAL_VOTOS_CALCULADOS, na.rm = T)
-prop_real
 ```
 
+Podemos ver que entre mayor es la muestra, menor es el error cuadrático medio fijando cualquier hora. 
 ```{r}
 ecm_tbl <- evals_tbl %>% mutate(prop_v = prop_real) %>% 
   group_by(corte, prop_muestra) %>% 
@@ -346,6 +346,18 @@ ggplot(ecm_tbl, aes(x = corte, y = recm,
                     group=prop_muestra)) +
   geom_point() + geom_line() + geom_vline(xintercept = 4)
 ```
+
+El error cuadrático medio es la suma del sesgo cuadrado y la varianza. Podemos observar también que, fijando cualquier hora, la proporción del error cuadrático medio que corresponde a la varianza es menor para muestras grandes. 
+
+```{r}
+ggplot(ecm_tbl, aes(x = corte, y = varianza / recm^2, 
+                    colour = factor(prop_muestra), 
+                    group=prop_muestra)) +
+  geom_point() + geom_line() + geom_vline(xintercept = 4)
+```
+
+Consecuentemente, la proporción del error cuadrático medio que corresponde al sesgo es mayor entre mayor sea la muestra.
+
 ```{r}
 ggplot(ecm_tbl, aes(x = corte, y = sesgo_2 / recm^2, 
                     colour = factor(prop_muestra), 
@@ -353,4 +365,14 @@ ggplot(ecm_tbl, aes(x = corte, y = sesgo_2 / recm^2,
   geom_point() + geom_line() + geom_vline(xintercept = 4)
 ```
 
+Un criterio razonable para decidir a qué hora se pueden dar resultados es pedir que el sesgo sea menos del 5% del error estándar. Podemos notar que con la muestra pequeña ésto sucede alrededor de las 4 horas, con la muestra mediana sucede a las 4.5 horas y con la muestra grande sucede después de las 5 horas. 
 
+```{r}
+ggplot(ecm_tbl, aes(x = corte, y = sqrt(sesgo_2/varianza), 
+                    colour = factor(prop_muestra), 
+                    group=prop_muestra)) +
+  geom_point() + geom_line() + 
+  geom_hline(yintercept = 0.5) +
+  ylab("sesgo/ee") + xlab("Horas desde el inicio") +
+  labs(colour = "proporción muestra")
+```
