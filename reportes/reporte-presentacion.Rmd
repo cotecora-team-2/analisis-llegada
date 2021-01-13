@@ -31,7 +31,7 @@ source("./lectura_procesamiento.R")
 En este documento analizamos cómo incide el patrón de censura
 por tiempo de llegada de la información de casillas en las estimaciones en 
 las elecciones de 2018.  Utilizamos modelos de supervivencia para modelar tiempos de llegada
-depedendiendo de características de casillas, secciones y entidades correspondientes.
+dependiendo de características de casillas, secciones y entidades correspondientes.
 
 Este ejercicio tiene dos objetivos principales:
 
@@ -101,7 +101,7 @@ son:
 - Estado, tipo de sección, tipo de casilla y tamaño de la lista nominal por casilla (INE, Cómputos distritales 2018)
 - La primera componente principal de variables de equipamiento y servicios de las viviendas  (INEGI, Estadísticas
 censales a escalas electorales, 2010)
-- Porcentaje de votos obtenidos para AMLO, JAMK, JHRC y RAC (INE, Cómputos distritales 2018)
+- Porcentaje de votos obtenidos para AMLO, JAMK y RAC (INE, Cómputos distritales 2018)
 
 
 ```{r, echo = FALSE}
@@ -193,28 +193,9 @@ g_1 + g_2 + plot_layout(guides = "collect") +
   plot_annotation(subtitle = "Efectos marginales (agregado sobre entidades)")
 ```
 
-Los coeficientes para el logaritmo de la proporción de votos recibidos por candidato se gradican a continuación (valores
-más negativos indican que el tiempo de llegada disminuye cuando la proporción de votos
-correspondiente es más grande):
-
-```{r, fig.width = 7, fig.height=3}
-coefs_1 <- reg_2 %>% tidy() %>% 
-  filter(str_detect(term, "TOTAL")) %>% 
-  separate(term, into = c("estado", "variable"), sep = ":") %>% 
-  mutate(variable = str_sub(variable, 10, 23)) %>%
-  mutate(variable = str_replace_all(variable, "\\(|\\)", "")) %>% 
-  mutate(estado = str_sub(estado, 11, 30)) %>% 
-  group_by(variable) %>% 
-  mutate(estado = fct_reorder(estado, estimate))
-ggplot(coefs_1, aes(x = estado, y = estimate, 
-                    ymin = estimate - std.error,
-                    ymax = estimate + std.error)) + 
-  geom_hline(yintercept = 0, colour = "salmon") +
-  geom_point() +
-  geom_linerange() +
-  facet_wrap(~ variable) + coord_flip() +
-  ylab("Coeficiente")
-```
+La asociación del tamaño de voto por cada candidato con el tiempo de llegada es también
+improtante. Varía por estado y se pueden consultar los coeficientes del modelo
+en el apéndice.
 
 ## Simulación, error cuadrático medio y censura
 
@@ -314,11 +295,12 @@ ggplot(ecm_tbl, aes(x = corte, y = (sesgo) / sqrt(varianza),
 - Muestras iniciales más grandes producen menor error cuadrático medio para cada hora de censura,
 pero la proporción del sesgo es más grande que en muestras más chicas.
 - Intervalos que no tomen en cuenta esto posiblemente no cumplirán su cobertura nominal.
-
+- Sin embargo, como veremos en la siguiente sección, el tamaño del sesgo y los patrones de llegada de información varían considerablemente de entidad a entidad.
 
 ## Resumen de entidades
 
-
+En las siguientes gráficas reportamos el **sesgo relativo absoluto** contra **porcentaje
+de muestra observada**:
 
 ```{r, cache = TRUE, echo = FALSE}
 library(parallel)
@@ -400,11 +382,44 @@ ggplot(sims_estados %>% filter(candidato == "RAC_1"),
 
 
 
+## Recomendaciones preliminares
 
+1. Considerar planes para monitorear la **consistencia** de la muestra observada 
+con la distribución poblacional en variables clave: tipos de casilla, tipo de distrito,
+indice de marginación, tamaño de lista nominal, por ejemplo.
+2. Considerar esquemas de **evaluación de modelos** con muestras censuradas con mecanismos
+similares a los que se han observados en elecciones pasadas. Considerar distintos niveles
+de censura (distintas horas de salida) para entender qué tan alejada puede estar la
+cobertura real de intervalos de su cobertura nominal. 
+3. Considerar estratificaciones que mitiguen el sesgo bajo muestras censuradas, usando
+variables asociadas al timepo de llegada (por ejemplo, tipo de sección e índice de marginación).
 
 
 
 ## Apéndice
+
+Los coeficientes para el logaritmo de la proporción de votos recibidos por candidato se grafican a continuación (valores
+más negativos indican que el tiempo de llegada disminuye cuando la proporción de votos
+correspondiente es más grande):
+
+```{r, fig.width = 7, fig.height=3, echo=FALSE}
+coefs_1 <- reg_2 %>% tidy() %>% 
+  filter(str_detect(term, "TOTAL")) %>% 
+  separate(term, into = c("estado", "variable"), sep = ":") %>% 
+  mutate(variable = str_sub(variable, 10, 23)) %>%
+  mutate(variable = str_replace_all(variable, "\\(|\\)", "")) %>% 
+  mutate(estado = str_sub(estado, 11, 30)) %>% 
+  group_by(variable) %>% 
+  mutate(estado = fct_reorder(estado, estimate))
+ggplot(coefs_1, aes(x = estado, y = estimate, 
+                    ymin = estimate - std.error,
+                    ymax = estimate + std.error)) + 
+  geom_hline(yintercept = 0, colour = "salmon") +
+  geom_point() +
+  geom_linerange() +
+  facet_wrap(~ variable) + coord_flip() +
+  ylab("Coeficiente")
+```
 
 Coeficientes para el modelo de tiempos de llegada
 
