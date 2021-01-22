@@ -88,6 +88,7 @@ ggplot(estimaciones, aes(x = "", y = prop_est)) +
 
 ```{r}
 estimaciones %>% left_join(prop_tbl) %>% 
+  group_by(candidato) %>% 
   summarise(sesgo = mean(prop_est - prop_obs), ee = sd(prop_est)) %>% 
   mutate(across(is.numeric, round, 5))
 ```
