@@ -1,0 +1,98 @@
+---
+title: "Ejemplos de muestreo y ponderación"
+output: html_notebook
+---
+
+
+```{r setup2, include=FALSE, message = FALSE}
+library(tidyverse)
+knitr::opts_chunk$set(echo = TRUE)
+theme_set(theme_minimal(base_size = 13))
+knitr::opts_chunk$set(echo = TRUE)
+# paquetes y codigo 
+library(patchwork)
+library(survival)
+library(survminer)
+library(DT)
+
+estados <- c("ZAC", "COL", "CHIH", "MICH", "NAY", "BC", "BCS", "SON",
+             "SIN", "NL", "SLP", "QRO", "GRO", "TLAX", "CAMP")
+source("../reportes/simulacion_tiempos.R")
+source("../reportes/lectura_procesamiento.R")
+```
+
+```{r}
+nrow(conteo)
+estados_tot <- unique(conteo$state_abbr)
+set.seed(661391)
+asignacion <- tibble(state_abbr = estados_tot,
+                     n_estado = rnbinom(length(estados_tot), size = 1, mu = 50))
+asignacion
+```
+```{r}
+totales_est <- conteo %>% group_by(state_abbr) %>% 
+  summarise(num_total_casillas = n(), .groups = "drop")
+extraer_muestra <- function(conteo, asignacion){
+  muestra_1 <- conteo %>% left_join(asignacion, by = "state_abbr") %>% 
+    group_by(state_abbr) %>% 
+    sample_n(n_estado)
+ muestra_1
+}
+estimar_razon <- function(muestra_1, totales_est){
+  prop_obs_tbl <- muestra_1 %>% 
+  pivot_longer(cols = all_of(c("AMLO_1", "RAC_1", "JAMK_1")), 
+               names_to = "candidato", values_to ="num_votos") %>% 
+  group_by(candidato, state_abbr) %>% 
+  summarise(acumulado_cand = sum(num_votos), 
+            acumulado_tot = sum(TOTAL_VOTOS_CALCULADOS),
+            n_muestra = n(),
+            .groups = "drop") %>% 
+  left_join(totales_est, by = "state_abbr") %>% 
+  mutate(votos_cand_est = (num_total_casillas / n_muestra) * acumulado_cand ) %>%
+  mutate(votos_total_est = (num_total_casillas / n_muestra) * acumulado_tot) %>% 
+  group_by(candidato) %>% 
+  summarise(prop_est = sum(votos_cand_est) / sum(votos_total_est), .groups = "drop" ) %>% 
+  select(candidato, prop_est)
+  prop_obs_tbl
+}
+muestra <- extraer_muestra(conteo, asignacion)
+estimar_razon(muestra_1, totales_est)
+```
+Calcular valores reales:
+
+```{r}
+prop_tbl <- conteo %>% 
+    pivot_longer(cols = all_of(c("AMLO_1", "RAC_1", "JAMK_1")), 
+               names_to = "candidato", values_to ="num_votos") %>% 
+    group_by(candidato) %>% 
+    summarise(acumulado_cand = sum(num_votos), 
+            acumulado_tot = sum(TOTAL_VOTOS_CALCULADOS),
+            .groups = "drop") %>% 
+    mutate(prop_obs = acumulado_cand / acumulado_tot) %>% 
+    select(candidato, prop_obs)
+prop_tbl
+```
+```{r}
+muestras <- map(1:200, ~ extraer_muestra(conteo, asignacion))
+estimaciones <- map(muestras, ~ estimar_razon(.x, totales_est)) %>% 
+  bind_rows(.id = "id")
+```
+
+
+```{r}
+ggplot(estimaciones, aes(x = "", y = prop_est)) +
+  geom_jitter(aes(y = prop_est), alpha = 0.5) + 
+  geom_point(data = prop_tbl, aes(y = prop_obs), colour = "red", size = 4) +
+  facet_wrap(~ candidato, scales = "free_y")
+```
+
+```{r}
+estimaciones %>% left_join(prop_tbl) %>% 
+  summarise(sesgo = mean(prop_est - prop_obs), ee = sd(prop_est)) %>% 
+  mutate(across(is.numeric, round, 5))
+```
+
+
+
+
+
