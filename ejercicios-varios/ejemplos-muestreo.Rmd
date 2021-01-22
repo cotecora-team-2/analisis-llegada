@@ -56,7 +56,7 @@ estimar_razon <- function(muestra_1, totales_est){
   prop_obs_tbl
 }
 muestra <- extraer_muestra(conteo, asignacion)
-estimar_razon(muestra_1, totales_est)
+estimar_razon(muestra, totales_est)
 ```
 Calcular valores reales:
 
