@@ -1,7 +1,7 @@
 ---
 title: "Censura por tiempo de llegada y Sesgo de estimacion"
 author: "Equipo 2 Cotecora 2021"
-date: "1/8/2021"
+date: "`r Sys.Date()`"
 bibliography: refs.bib
 output: html_document
 ---
@@ -104,7 +104,7 @@ censales a escalas electorales, 2010)
 - Porcentaje de votos obtenidos para AMLO, JAMK y RAC (INE, Cómputos distritales 2018)
 
 
-```{r, echo = FALSE}
+```{r, echo = FALSE, cache=FALSE}
 llegadas_tbl_2 <- llegadas_tbl %>% 
   filter(state_abbr %in% estados) %>%
   ungroup %>% 
@@ -131,7 +131,7 @@ reg_2 <- survreg(formula,
 Simulando del modelo construido podemos checar el ajuste a total para cada estado. Las líneas
 grises muestran 50 simulaciones del modelo y la roja los datos observados:
 
-```{r, echo = FALSE, fig.width=6, fig.height=6}
+```{r, cache = TRUE , echo = FALSE, fig.width=6, fig.height=6}
 set.seed(188324)
 datos_sim <- map(1:50, ~ simular_cuantiles(.x, llegadas_tbl_2, reg = reg_2)) 
 gg_obs <- ggsurvplot(survfit(Surv(tiempo_huso, status)~ state_abbr, llegadas_tbl_2))
@@ -224,14 +224,14 @@ Antes de producir estimaciones para todas las entidades seleccionadas, considera
 el caso particular de Chihuahua. Usaremos 500 muestras en este ejemplo.
 
 
-```{r, echo =FALSE, message=FALSE, warning=FALSE}
+```{r, cache = TRUE, echo =FALSE, message=FALSE, warning=FALSE}
 # cortes (horas después de 18:30 en la elección de 2018)
 cortes <- c(1.5, 2.5, 3, 3.5, 4, 4.5, 5.5, Inf)
 # tamaño de muestra
 props_muestra <- c(0.03, 0.05, 0.10)
 estado_sim <- "CHIH"
 eval_tbls <- parallel::mclapply(props_muestra, function(x) {
-    map_df(1:500, ~ simular_cortes(.x, cortes= cortes, prop_muestra = x, estado_sim = estado_sim))
+    map_df(1:500, ~ simular_cortes(.x, cortes = cortes, prop_muestra = x, estado_sim = estado_sim))
   },  mc.cores = 3)
 evals_tbl <- bind_rows(eval_tbls)
 total <- seleccionar_muestra(conteo, prop = 1, estado_sim)
@@ -302,8 +302,9 @@ pero la proporción del sesgo es más grande que en muestras más chicas.
 En las siguientes gráficas reportamos el **sesgo relativo absoluto** contra **porcentaje
 de muestra observada**:
 
-```{r, cache = TRUE, echo = FALSE}
+```{r, cache = FALSE, echo = FALSE}
 library(parallel)
+if(FALSE){
 sims_estados <- mclapply(estados, function(estado_sim){
   print(estado_sim)
   # simular
@@ -332,6 +333,7 @@ sims_estados <- mclapply(estados, function(estado_sim){
     ungroup() %>% 
     group_by(corte, prop_muestra, candidato) %>% 
     summarise(sesgo = mean(prop_cand) - mean(prop_obs),
+              prop_obs = mean(prop_obs),
             varianza = var(prop_cand),
             prop_casillas_muestra = mean(prop_casillas_muestra), 
             .groups = "drop") %>% 
@@ -341,9 +343,12 @@ sims_estados <- mclapply(estados, function(estado_sim){
     mutate(state_abbr = estado_sim)
   ecm_tbl
 }, mc.cores = 6)
+write_rds(sims_estados, "salidas/sims_estados.rds")
+}
 ```
 
 ```{r, echo = FALSE}
+sims_estados <- read_rds("salidas/sims_estados.rds")
 sims_estados <- sims_estados %>% bind_rows()
 ```
 
@@ -352,7 +357,6 @@ Sesgo y error estándar para AMLO, por estado, hora de corte y tamaño de muestr
 ```{r, fig.width = 10, echo = FALSE}
 ggplot(sims_estados %>% filter(candidato == "AMLO_1"),
        aes(x = prop_casillas_muestra, y = sesgo_relativo, colour = prop_muestra)) +
-  geom_hline(yintercept = 0.5) +
   geom_point() + geom_line() + 
   facet_wrap(~state_abbr) 
 ```
@@ -394,6 +398,59 @@ cobertura real de intervalos de su cobertura nominal.
 3. Considerar estratificaciones que mitiguen el sesgo bajo muestras censuradas, usando
 variables asociadas al timepo de llegada (por ejemplo, tipo de sección e índice de marginación).
 
+## Magnitud del sesgo absoluto y su dependencia de la proporción de muestra observada
+
+En contraste con el sesgo relativo, el sesgo absoluto (bajo nuestro
+modelo de llegadas) no depende de la fracción
+de muestreo seleccionada, y sólo depende de las cantidades a estimar y
+la proporción de muestra censurada a cada tiempo. Si graficamos todos los
+sesgos calculados vs la fracción de muestreo, obtenemos
+
+```{r}
+sims_estados
+```
+
+
+```{r, fig.width = 10, echo = FALSE}
+ggplot(sims_estados,
+       aes(x = prop_casillas_muestra, y = abs(sesgo), colour = candidato)) +
+  geom_point() + geom_line() + 
+  ylab("Sesgo absoluto") +
+  xlab("Proporción de muestra recibida") +
+  facet_wrap(~state_abbr) 
+```
+
+
+
+```{r, echo = FALSE}
+ggplot(sims_estados %>% filter(prop_muestra==0.10),
+       aes(x = prop_casillas_muestra, y = abs(sesgo), 
+           group = prop_casillas_muestra, colour = prop_obs)) +
+  geom_smooth(method = "lm", se = FALSE) +
+  geom_point() +
+  ylab("Sesgo absoluto") +
+  xlab("Proporción de muestra recibida") +
+  facet_wrap(~ state_abbr)
+```
+
+```{r}
+reg_tbl <- sims_estados %>% filter(prop_muestra==0.10) %>% 
+  mutate(sesgo_abs = abs(sesgo)) %>% 
+  mutate(factor_f = prop_obs*(1-prop_obs)*(1-prop_casillas_muestra))
+mod_1 <- lm(sesgo_abs ~  -1 + factor_f:state_abbr, reg_tbl)
+summary(mod_1)
+```
+
+```{r}
+reg_tbl$pred <- predict(mod_1)
+ggplot(reg_tbl, aes(x = prop_casillas_muestra,  
+            colour = prop_obs)) +
+  geom_jitter(aes(y = abs(sesgo)), alpha = 0.5) +
+  geom_line(aes(y = pred, group = prop_obs)) +
+  ylab("Sesgo absoluto") +
+  xlab("Proporción de muestra recibida") +
+  facet_wrap(~ state_abbr)
+```
 
 
 ## Apéndice
