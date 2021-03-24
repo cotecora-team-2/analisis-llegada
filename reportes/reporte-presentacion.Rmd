@@ -406,47 +406,53 @@ de muestreo seleccionada, y sólo depende de las cantidades a estimar y
 la proporción de muestra censurada a cada tiempo. Si graficamos todos los
 sesgos calculados vs la fracción de muestreo, obtenemos
 
-```{r}
-sims_estados
+```{r, echo=FALSE}
+#sims_estados
 ```
 
 
 ```{r, fig.width = 10, echo = FALSE}
-ggplot(sims_estados,
-       aes(x = prop_casillas_muestra, y = abs(sesgo), colour = candidato)) +
-  geom_point() + geom_line() + 
-  ylab("Sesgo absoluto") +
-  xlab("Proporción de muestra recibida") +
-  facet_wrap(~state_abbr) 
+#ggplot(sims_estados,
+#       aes(x = prop_casillas_muestra, y = abs(sesgo), colour = candidato)) +
+#  geom_point() + geom_line() + 
+#  ylab("Sesgo absoluto") +
+#  xlab("Proporción de muestra recibida") +
+#  facet_wrap(~state_abbr) 
 ```
 
 
 
 ```{r, echo = FALSE}
-ggplot(sims_estados %>% filter(prop_muestra==0.10),
-       aes(x = prop_casillas_muestra, y = abs(sesgo), 
-           group = prop_casillas_muestra, colour = prop_obs)) +
-  geom_smooth(method = "lm", se = FALSE) +
+ggplot(sims_estados %>% filter(prop_muestra==0.10) %>% 
+         rename(theta = prop_obs, prop_observada = prop_casillas_muestra),
+       aes(x = prop_observada, y = abs(sesgo), 
+            colour = theta)) +
+  #geom_smooth(method = "lm", se = FALSE) +
   geom_point() +
   ylab("Sesgo absoluto") +
   xlab("Proporción de muestra recibida") +
   facet_wrap(~ state_abbr)
 ```
 
-```{r}
+El patrón que observamos en estas gráficas se puede describir como
+
+$${\textrm sesgo}\propto \theta(1-\theta)(1-prop_{obs})$$
+
+```{r, echo =FALSE}
 reg_tbl <- sims_estados %>% filter(prop_muestra==0.10) %>% 
   mutate(sesgo_abs = abs(sesgo)) %>% 
-  mutate(factor_f = prop_obs*(1-prop_obs)*(1-prop_casillas_muestra))
+  rename(theta = prop_obs, prop_observada = prop_casillas_muestra) %>% 
+  mutate(factor_f = theta*(1-theta)*(1-prop_observada))
 mod_1 <- lm(sesgo_abs ~  -1 + factor_f:state_abbr, reg_tbl)
 summary(mod_1)
 ```
 
-```{r}
+```{r, echo = FALSE}
 reg_tbl$pred <- predict(mod_1)
-ggplot(reg_tbl, aes(x = prop_casillas_muestra,  
-            colour = prop_obs)) +
+ggplot(reg_tbl, aes(x = prop_observada,  
+            colour = theta)) +
   geom_jitter(aes(y = abs(sesgo)), alpha = 0.5) +
-  geom_line(aes(y = pred, group = prop_obs)) +
+  geom_line(aes(y = pred, group = theta)) +
   ylab("Sesgo absoluto") +
   xlab("Proporción de muestra recibida") +
   facet_wrap(~ state_abbr)
