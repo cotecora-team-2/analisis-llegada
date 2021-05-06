@@ -2,8 +2,9 @@ FROM rocker/verse:4.0.3
 
 # Geoespacial
 
-RUN apt-get update \
-  && apt-get install -y --no-install-recommends \
+RUN apt-get update && export DEBIAN_FRONTEND=noninteractive && apt-get install -y tzdata && cp /usr/share/zoneinfo/America/Mexico_City /etc/localtime && \
+    echo "America/Mexico_City" > /etc/timezone && \
+    apt-get install -y --no-install-recommends \
     lbzip2 \
     libfftw3-dev \
     libgdal-dev \
@@ -54,6 +55,7 @@ RUN install2.r --error \
     spdep \
     geoR \
     geosphere \
+    logger \
     ## from bioconductor
     && R -e "BiocManager::install('rhdf5', update=FALSE, ask=FALSE)"
 
